@@ -10,6 +10,7 @@
 #include "gps_nmea.h"
 #include "gps_ubx.h"
 #include "gps_unicore.h"
+#include "log.h"
 #include "semphr.h"
 #include <stdbool.h>
 #include <stdint.h>

@@ -31,6 +31,7 @@ typedef struct {
   gps_unicore_msg_t msg_type;
   uint8_t crc;
   uint8_t star;
+  uint8_t colon;  // ':' 이후는 CRC에 포함 안 함
   gps_unicore_resp_t response;
 } gps_unicore_parser_t;
 

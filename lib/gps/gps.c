@@ -124,7 +124,13 @@ static inline uint8_t check_unicore_chksum(gps_t *gps) {
                    << 0x04U) |
                   ((PARSER_CHAR_HEX_TO_NUM(gps->unicore.term_str[1])) & 0x0FU));
 
+  LOG_DEBUG("Unicore CRC check: calculated=0x%02X, expected=0x%02X (from '%c%c'), term_num=%d",
+            gps->unicore.crc, crc,
+            gps->unicore.term_str[0], gps->unicore.term_str[1],
+            gps->unicore.term_num);
+
   if (gps->unicore.crc != crc) {
+    LOG_WARN("Unicore CRC mismatch!");
     return 0;
   }
 
@@ -203,12 +209,16 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
 
       if (*d == ',') {
             if (gps->nmea.term_num == 0 && strcmp(gps->nmea.term_str, "command") == 0) {
-              memcpy(&gps->unicore, &gps->nmea, sizeof(gps->nmea));
+              // UNICORE로 전환: NMEA CRC만 복사하고 NMEA 상태 정리
+              memset(&gps->unicore, 0, sizeof(gps->unicore));
+              gps->unicore.crc = gps->nmea.crc;  // CRC만 복사
+              memset(&gps->nmea, 0, sizeof(gps->nmea));  // NMEA 상태 정리
               gps->protocol = GPS_PROTOCOL_UNICORE;
               gps->state = GPS_PARSE_STATE_UNICORE_START;
               gps->unicore.msg_type = GPS_UNICORE_MSG_COMMAND;
-              add_unicore_chksum(gps, *d);
+              add_unicore_chksum(gps, *d);  // ',' 포함
               term_next_unicore(gps);
+              LOG_DEBUG("Switch to UNICORE, CRC=0x%02X after 'command,'", gps->unicore.crc);
             } else {
               gps_parse_nmea_term(gps);
               add_nmea_chksum(gps, *d);
@@ -257,8 +267,16 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
     {
       if (*d == ',') {
         gps_parse_unicore_term(gps);
-        add_unicore_chksum(gps, *d);
+        if (!gps->unicore.colon) {
+          add_unicore_chksum(gps, *d);
+        }
         term_next_unicore(gps);
+      }
+      else if (*d == ':') {
+        // ':' 이후는 값이므로 CRC에 포함하지 않음
+        gps->unicore.colon = 1;
+        add_unicore_chksum(gps, *d);  // ':' 자체는 CRC에 포함
+        term_add_unicore(gps, *d);
       }
       else if (*d == '*') {
         gps_parse_unicore_term(gps);
@@ -266,20 +284,25 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
         term_next_unicore(gps);
         gps->state = GPS_PARSE_STATE_UNICORE_CHKSUM;
       } else if (*d == '\r') {
-        if (check_nmea_chksum(gps)) {
+        if (check_unicore_chksum(gps)) {
+          LOG_DEBUG("Unicore CRC OK! response=%d", gps->unicore.response);
           gps_msg_t msg;
           msg.unicore.response = gps->unicore.response;
 
           if (gps->handler) {
+            LOG_DEBUG("Calling event handler");
             gps->handler(gps, GPS_EVENT_DATA_PARSED, gps->protocol, msg);
+          } else {
+            LOG_WARN("Event handler is NULL!");
           }
         }
 
         memset(gps->payload, 0, sizeof(gps->payload));
+        memset(&gps->unicore, 0, sizeof(gps->unicore));
         gps->protocol = GPS_PROTOCOL_NONE;
         gps->state = GPS_PARSE_STATE_NONE;
       } else {
-        if (!gps->unicore.star) {
+        if (!gps->unicore.star && !gps->unicore.colon) {
           add_unicore_chksum(gps, *d);
         }
 
