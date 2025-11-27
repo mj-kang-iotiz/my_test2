@@ -221,8 +221,8 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
       }
 
       if (*d == ',') {
-          // 첫 번째 term 파싱 시 $command면 UNICORE로 전환
-          if (gps->nmea.term_num == 0 && strcmp(gps->nmea.term_str, "$command") == 0) {
+          // 첫 번째 term 파싱 시 command면 UNICORE로 전환 ($ 제외)
+          if (gps->nmea.term_num == 0 && strcmp(gps->nmea.term_str, "command") == 0) {
             memcpy(&gps->unicore, &gps->nmea, sizeof(gps->nmea));
             gps->protocol = GPS_PROTOCOL_UNICORE;
             gps->state = GPS_PARSE_STATE_UNICORE_START;

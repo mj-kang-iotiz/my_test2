@@ -11,6 +11,13 @@
 #define GPS_UNICORE_BIN_SYNC_2 0x44
 #define GPS_UNICORE_BIN_SYNC_3 0xB5
 
+/**
+ * @brief Unicore ASCII 메시지 타입
+ */
+typedef enum {
+  GPS_UNICORE_MSG_NONE = 0,
+  GPS_UNICORE_MSG_COMMAND = 1
+} gps_unicore_msg_t;
 
 /**
  * @brief Unicore ASCII 응답 타입

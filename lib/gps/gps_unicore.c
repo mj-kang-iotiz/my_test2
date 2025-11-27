@@ -25,9 +25,9 @@ gps_unicore_resp_t gps_get_unicore_response(gps_t *gps) {
 uint8_t gps_parse_unicore_term(gps_t *gps) {
   char *term = gps->unicore.term_str;
 
-  // term_num 0: $command
+  // term_num 0: command ($ 제외)
   if (gps->unicore.term_num == 0) {
-    if (strcmp(term, "$command") == 0) {
+    if (strcmp(term, "command") == 0) {
       gps->unicore.msg_type = GPS_UNICORE_MSG_COMMAND;
     }
   }
