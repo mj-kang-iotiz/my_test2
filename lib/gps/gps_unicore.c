@@ -73,9 +73,13 @@ uint8_t gps_parse_unicore_bin(gps_t *gps) {
   if (gps->pos == 6) {
     memcpy(&gps->unicore_bin.header.message_id, &gps->payload[4], 2);
     gps->state = GPS_PARSE_STATE_UNICORE_MESSAGE_ID;
+    LOG_DEBUG("UNICORE BIN: pos=%d, message_id=0x%04X (%d)",
+              gps->pos, gps->unicore_bin.header.message_id, gps->unicore_bin.header.message_id);
   } else if (gps->pos == 8) {
     memcpy(&gps->unicore_bin.header.message_len, &gps->payload[6], 2);
     gps->state = GPS_PARSE_STATE_UNICORE_MESSAGE_LEN;
+    LOG_DEBUG("UNICORE BIN: pos=%d, message_len=0x%04X (%d bytes)",
+              gps->pos, gps->unicore_bin.header.message_len, gps->unicore_bin.header.message_len);
   } 
    else {
     uint16_t message_len = gps->unicore_bin.header.message_len;
@@ -91,7 +95,10 @@ uint8_t gps_parse_unicore_bin(gps_t *gps) {
         store_unicore_bin_data(gps);
 
         memcpy(&gps->unicore_bin.header, gps->payload, GPS_UNICORE_BIN_HEADER_SIZE);
-        
+
+        LOG_DEBUG("UNICORE BIN: CRC OK! Packet complete, msg_id=%d, len=%d",
+                  gps->unicore_bin.header.message_id, message_len);
+
         gps_msg_t msg;
         msg.unicore_bin.msg = gps->unicore_bin.header.message_id;
         gps->handler(gps, GPS_EVENT_DATA_PARSED, GPS_PROTOCOL_UNICORE_BIN, msg);
@@ -102,6 +109,8 @@ uint8_t gps_parse_unicore_bin(gps_t *gps) {
 
         return 1;
       } else {
+        LOG_WARN("UNICORE BIN: CRC FAILED! pos=%d, expected_crc=0x%08X, calculated_crc=0x%08X, resetting parser",
+                 gps->pos, gps->unicore_bin.crc32, calc_unicore_binary_chksum(gps));
         gps->protocol = GPS_PROTOCOL_NONE;
         gps->state = GPS_PARSE_STATE_NONE;
 

@@ -176,10 +176,12 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
         memset(gps->payload, 0, sizeof(gps->payload));
         gps->pos = 0;
         add_payload(gps, *d);
+        LOG_DEBUG("UNICORE BIN: SYNC1 detected (0xAA)");
       }
       else if(*d == 0x44 && gps->state == GPS_PARSE_STATE_UNICORE_SYNC1) {
         gps->state = GPS_PARSE_STATE_UNICORE_SYNC2;
         add_payload(gps, *d);
+        LOG_DEBUG("UNICORE BIN: SYNC2 detected (0x44)");
       }
       else if(*d == 0xB5 && gps->state == GPS_PARSE_STATE_UNICORE_SYNC2) {
         memset(&gps->unicore_bin, 0, sizeof(gps->unicore_bin));
@@ -187,6 +189,7 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
 
         gps->protocol = GPS_PROTOCOL_UNICORE_BIN;
         gps->state = GPS_PARSE_STATE_UNICORE_SYNC3;
+        LOG_DEBUG("UNICORE BIN: SYNC3 detected (0xB5), protocol set to UNICORE_BIN");
       }
       /* UBX binary - only when state is NONE to avoid conflict with UNICORE sync3 */
       else if (*d == 0xB5 && gps->state == GPS_PARSE_STATE_NONE) {
