@@ -124,7 +124,13 @@ static inline uint8_t check_unicore_chksum(gps_t *gps) {
                    << 0x04U) |
                   ((PARSER_CHAR_HEX_TO_NUM(gps->unicore.term_str[1])) & 0x0FU));
 
+  LOG_DEBUG("Unicore CRC check: calculated=0x%02X, expected=0x%02X (from '%c%c'), term_num=%d",
+            gps->unicore.crc, crc,
+            gps->unicore.term_str[0], gps->unicore.term_str[1],
+            gps->unicore.term_num);
+
   if (gps->unicore.crc != crc) {
+    LOG_WARN("Unicore CRC mismatch!");
     return 0;
   }
 
@@ -267,11 +273,15 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
         gps->state = GPS_PARSE_STATE_UNICORE_CHKSUM;
       } else if (*d == '\r') {
         if (check_unicore_chksum(gps)) {
+          LOG_DEBUG("Unicore CRC OK! response=%d", gps->unicore.response);
           gps_msg_t msg;
           msg.unicore.response = gps->unicore.response;
 
           if (gps->handler) {
+            LOG_DEBUG("Calling event handler");
             gps->handler(gps, GPS_EVENT_DATA_PARSED, gps->protocol, msg);
+          } else {
+            LOG_WARN("Event handler is NULL!");
           }
         }
 
