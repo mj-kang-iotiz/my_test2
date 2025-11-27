@@ -267,8 +267,16 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
     {
       if (*d == ',') {
         gps_parse_unicore_term(gps);
-        add_unicore_chksum(gps, *d);
+        if (!gps->unicore.colon) {
+          add_unicore_chksum(gps, *d);
+        }
         term_next_unicore(gps);
+      }
+      else if (*d == ':') {
+        // ':' 이후는 값이므로 CRC에 포함하지 않음
+        gps->unicore.colon = 1;
+        add_unicore_chksum(gps, *d);  // ':' 자체는 CRC에 포함
+        term_add_unicore(gps, *d);
       }
       else if (*d == '*') {
         gps_parse_unicore_term(gps);
@@ -294,7 +302,7 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
         gps->protocol = GPS_PROTOCOL_NONE;
         gps->state = GPS_PARSE_STATE_NONE;
       } else {
-        if (!gps->unicore.star) {
+        if (!gps->unicore.star && !gps->unicore.colon) {
           add_unicore_chksum(gps, *d);
         }
 
