@@ -11,10 +11,18 @@
 #define GPS_UNICORE_BIN_SYNC_2 0x44
 #define GPS_UNICORE_BIN_SYNC_3 0xB5
 
+typedef enum {
+  GPS_UNICORE_MSG_NONE = 0,
+  GPS_UNICORE_MSG_COMMAND = 1
+} gps_unicore_msg_t;
 
-/**
- * @brief Unicore 파서 상태
- */
+typedef enum {
+  GPS_UNICORE_RESP_NONE = 0,
+  GPS_UNICORE_RESP_OK = 1,
+  GPS_UNICORE_RESP_ERROR = 2,
+  GPS_UNICORE_RESP_UNKNOWN = 3
+} gps_unicore_resp_t;
+
 typedef struct {
   char term_str[GPS_UNICORE_TERM_SIZE];
   uint8_t term_pos;
@@ -23,13 +31,14 @@ typedef struct {
   gps_unicore_msg_t msg_type;
   uint8_t crc;
   uint8_t star;
+  gps_unicore_resp_t response;
 } gps_unicore_parser_t;
 
 typedef enum {
     GPS_UNICORE_BIN_MSG_BESTNAV = 2118
 }gps_unicore_bin_msg_t;
 
-typedef struct {
+typedef struct __attribute__((packed)) {
     uint8_t sync[3]; ///< 0xAA 0x44 0xB5
     uint8_t cpu_idle; ///< CPU idle 0-100
     uint16_t message_id;
@@ -49,7 +58,7 @@ typedef struct {
   uint32_t crc32;
 } gps_unicore_bin_parser_t;
 
-typedef struct
+typedef struct __attribute__((packed))
 {
     uint32_t psol_status;
     uint32_t pos_type;
@@ -87,7 +96,8 @@ typedef struct {
 
 typedef struct gps_s gps_t;
 
+gps_unicore_resp_t gps_get_unicore_response(gps_t *gps);
 uint8_t gps_parse_unicore_term(gps_t *gps);
-void gps_parse_unicore_bin(gps_t *gps);
+uint8_t gps_parse_unicore_bin(gps_t *gps);
 
 #endif

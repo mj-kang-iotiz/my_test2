@@ -41,7 +41,7 @@ typedef enum {
   GPS_PARSE_STATE_NMEA_CHKSUM = 4,
   GPS_PARSE_STATE_NMEA_END_SEQ = 5,
 
-  /* UBX protocol*/
+  /* UBX protocol */
   GPS_PARSE_STATE_UBX_SYNC_1 = 10,
   GPS_PARSE_STATE_UBX_SYNC_2 = 11,
   GPS_PARSE_STATE_UBX_MSG_CLASS = 12,
@@ -51,11 +51,12 @@ typedef enum {
   GPS_PARSE_STATE_UBX_CHKSUM_A = 16,
   GPS_PARSE_STATE_UBX_CHKSUM_B = 17,
 
-  /* UNICORE protocol*/
+  /* UNICORE protocol */
   GPS_PARSE_STATE_UNICORE_START = 20,
   GPS_PARSE_STATE_UNICORE_DATA = 21,
   GPS_PARSE_STATE_UNICORE_CHKSUM = 22,
 
+  /* UNICORE BINARY protocol */
   GPS_PARSE_STATE_UNICORE_SYNC1 = 30,
   GPS_PARSE_STATE_UNICORE_SYNC2 = 31,
   GPS_PARSE_STATE_UNICORE_SYNC3 = 32,
@@ -64,7 +65,6 @@ typedef enum {
   GPS_PARSE_STATE_UNICORE_PAYLOAD = 35,
   GPS_PARSE_STATE_UNICORE_CRC = 36,
   
-
   GPS_PARSE_STATE_INVALID = UINT8_MAX
 } gps_parse_state_t;
 
@@ -88,6 +88,9 @@ typedef union {
   struct {
     uint16_t msg;
   } unicore_bin;
+  struct {
+    uint8_t response;
+  } unicore;
 } gps_msg_t;
 
 #endif

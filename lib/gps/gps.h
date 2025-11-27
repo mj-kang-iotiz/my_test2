@@ -56,6 +56,7 @@ typedef struct gps_s {
   /* protocol header */
   gps_nmea_parser_t nmea;
   gps_ubx_parser_t ubx;
+  gps_unicore_parser_t unicore;
   gps_unicore_bin_parser_t unicore_bin;
 
   /* info */

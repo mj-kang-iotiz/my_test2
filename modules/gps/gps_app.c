@@ -10,25 +10,25 @@
 #define GGA_AVG_SIZE 50
 #define HP_AVG_SIZE 50
 
-static const gps_init_cmd_t um982_base_cmds[] = {
-    {"mode base time 60\r\n"},
-    {"rtcm1033 com1 10\r\n"},
-    {"rtcm1006 com1 10\r\n"},
-    {"rtcm1074 com1 1\r\n"},
-    {"rtcm1124 com1 1\r\n"},
-    {"rtcm1084 com1 1\r\n"},
-    {"rtcm1094 com1 1\r\n"},
-    {"gpgga com1 1\r\n"},
-    {"BESTNAVA 1\r\n"},
-};
-
-// ROVER UM982: 로버 모드
-static const gps_init_cmd_t um982_rover_cmds[] = {
-    {"CONFIG RESET\r\n"},
-    {"MODE ROVER\r\n"},
-    {"GNGGA 1\r\n"},
-    {"SAVECONFIG\r\n"},
-};
+//static const gps_init_cmd_t um982_base_cmds[] = {
+//    {"mode base time 60\r\n"},
+//    {"rtcm1033 com1 10\r\n"},
+//    {"rtcm1006 com1 10\r\n"},
+//    {"rtcm1074 com1 1\r\n"},
+//    {"rtcm1124 com1 1\r\n"},
+//    {"rtcm1084 com1 1\r\n"},
+//    {"rtcm1094 com1 1\r\n"},
+//    {"gpgga com1 1\r\n"},
+//    {"BESTNAVA 1\r\n"},
+//};
+//
+//// ROVER UM982: 로버 모드
+//static const gps_init_cmd_t um982_rover_cmds[] = {
+//    {"CONFIG RESET\r\n"},
+//    {"MODE ROVER\r\n"},
+//    {"GNGGA 1\r\n"},
+//    {"SAVECONFIG\r\n"},
+//};
 
 typedef struct {
   int32_t lon[HP_AVG_SIZE];
@@ -202,19 +202,6 @@ void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
 
   if (!inst)
     return;
-
-  switch (event) {
-  case GPS_EVENT_READY:
-    // RDY 수신 → 설정 명령 전송 플래그 설정
-    if (inst->config.seq != NULL) {
-      LOG_INFO("GPS[%d] RDY received, will send config commands", inst->id);
-      inst->config.need_send_config = true;
-    }
-    break;
-
-  default:
-    break;
-  }
 
   switch (protocol) {
   case GPS_PROTOCOL_NMEA:
