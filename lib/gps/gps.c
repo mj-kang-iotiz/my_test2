@@ -266,7 +266,7 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
         term_next_unicore(gps);
         gps->state = GPS_PARSE_STATE_UNICORE_CHKSUM;
       } else if (*d == '\r') {
-        if (check_nmea_chksum(gps)) {
+        if (check_unicore_chksum(gps)) {
           gps_msg_t msg;
           msg.unicore.response = gps->unicore.response;
 
@@ -276,6 +276,7 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
         }
 
         memset(gps->payload, 0, sizeof(gps->payload));
+        memset(&gps->unicore, 0, sizeof(gps->unicore));
         gps->protocol = GPS_PROTOCOL_NONE;
         gps->state = GPS_PARSE_STATE_NONE;
       } else {
