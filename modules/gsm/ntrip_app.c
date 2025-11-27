@@ -53,6 +53,9 @@ static bool g_ntrip_connected = false;
 // GGA 전송 큐
 static QueueHandle_t g_gga_send_queue = NULL;
 
+// GGA 송신 태스크 핸들
+static TaskHandle_t g_gga_send_task_handle = NULL;
+
 static int ntrip_connect_to_server(tcp_socket_t *sock) {
   int ret;
   int retry_count = 0;
@@ -110,6 +113,44 @@ static int ntrip_connect_to_server(tcp_socket_t *sock) {
 }
 
 /**
+ * @brief GGA 송신 전용 태스크
+ *
+ * GGA 큐에서 데이터를 블로킹 대기하여 즉시 전송
+ * - 폴링 없이 이벤트 기반 동작
+ * - RTCM 수신과 완전히 독립적으로 동작
+ */
+static void ntrip_gga_send_task(void *pvParameter) {
+  tcp_socket_t *sock = (tcp_socket_t *)pvParameter;
+  ntrip_gga_queue_item_t gga_item;
+
+  LOG_INFO("GGA 송신 태스크 시작");
+
+  while (1) {
+    // GGA 큐에서 블로킹 대기 (데이터 도착 즉시 깨어남)
+    if (xQueueReceive(g_gga_send_queue, &gga_item, portMAX_DELAY) == pdTRUE) {
+
+      // 연결 상태 확인
+      if (!g_ntrip_connected) {
+        LOG_DEBUG("NTRIP 연결 안 됨, GGA 전송 스킵");
+        continue;
+      }
+
+      // GGA 전송
+      int ret = tcp_send(sock, (const uint8_t *)gga_item.data, gga_item.len);
+
+      if (ret > 0) {
+        LOG_INFO("GGA 전송 완료 (%d bytes): %.*s",
+                 gga_item.len, gga_item.len, gga_item.data);
+      } else {
+        LOG_WARN("GGA 전송 실패: %d", ret);
+        // 전송 실패해도 계속 진행 (다음 GGA는 다시 시도)
+        // 연결이 끊어진 경우 수신 태스크에서 재연결 처리
+      }
+    }
+  }
+}
+
+/**
  * @brief NTRIP TCP 수신 태스크
  */
 static void ntrip_tcp_recv_task(void *pvParameter) {
@@ -157,6 +198,13 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
   g_ntrip_connected = true;
   gsm_socket_monitor_start();
 
+  // GGA 송신 태스크 생성
+  if (g_gga_send_task_handle == NULL) {
+    xTaskCreate(ntrip_gga_send_task, "gga_send", 1024, sock,
+                tskIDLE_PRIORITY + 2, &g_gga_send_task_handle);
+    LOG_INFO("GGA 송신 태스크 생성 완료");
+  }
+
   // HTTP 요청 전송 (한 번만)
   LOG_INFO("NTRIP HTTP 요청 전송");
   ret = tcp_send(sock, (const uint8_t *)NTRIP_HTTP_REQUEST,
@@ -175,34 +223,10 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
   ret = tcp_recv(sock, recv_buf, sizeof(recv_buf), 0);
   led_set_color(1, LED_COLOR_GREEN);
 
-  // 무한 루프: 데이터 수신
+  // 무한 루프: 데이터 수신 (GGA 전송은 별도 태스크에서 처리)
   while (1) {
-    // GGA 큐 확인 및 전송 (한 루프당 최대 5개로 제한)
-    ntrip_gga_queue_item_t gga_item;
-    int sent_count = 0;
-    while (g_ntrip_connected && sent_count < NTRIP_GGA_SEND_BATCH &&
-           xQueueReceive(g_gga_send_queue, &gga_item, 0) == pdTRUE) {
-      int send_ret = tcp_send(sock, (const uint8_t *)gga_item.data, gga_item.len);
-      if (send_ret > 0) {
-        LOG_INFO("Sent GGA to NTRIP (%d bytes): %.*s",
-                 gga_item.len, gga_item.len, gga_item.data);
-        sent_count++;
-      } else {
-        LOG_WARN("Failed to send GGA to NTRIP: %d", send_ret);
-        // 전송 실패 시 루프 중단 (다음 recv 후 재시도)
-        break;
-      }
-    }
-
-    // 남은 GGA가 있으면 로깅
-    if (sent_count >= NTRIP_GGA_SEND_BATCH && g_ntrip_connected) {
-      UBaseType_t remaining = uxQueueMessagesWaiting(g_gga_send_queue);
-      if (remaining > 0) {
-        LOG_DEBUG("GGA batch sent (%d), %d remaining in queue", sent_count, remaining);
-      }
-    }
-
-    // 데이터 수신 (블로킹)
+    // RTCM 데이터 수신 (기본 타임아웃 5초 사용)
+    // GGA 전송은 별도 태스크가 독립적으로 처리하므로 여기서는 신경 쓸 필요 없음
     ret = tcp_recv(sock, recv_buf, sizeof(recv_buf), 0);
 
     if (ret > 0) {
@@ -251,6 +275,13 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
         led_set_color(1, LED_COLOR_YELLOW);
         g_ntrip_connected = false;
 
+        // GGA 송신 태스크 삭제 (재연결 중에는 전송하지 않음)
+        if (g_gga_send_task_handle != NULL) {
+          vTaskDelete(g_gga_send_task_handle);
+          g_gga_send_task_handle = NULL;
+          LOG_INFO("GGA 송신 태스크 삭제");
+        }
+
         // 기존 연결 닫기
         tcp_close_force(sock);
         vTaskDelay(pdMS_TO_TICKS(NTRIP_RECONNECT_DELAY_MS));
@@ -282,6 +313,13 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
           } else if (queued_gga == 1) {
             LOG_INFO("재연결 완료 - 최신 GGA 1개 전송 예정");
           }
+
+          // GGA 송신 태스크 재생성
+          if (g_gga_send_task_handle == NULL) {
+            xTaskCreate(ntrip_gga_send_task, "gga_send", 1024, sock,
+                        tskIDLE_PRIORITY + 2, &g_gga_send_task_handle);
+            LOG_INFO("GGA 송신 태스크 재생성 완료");
+          }
         }
       }
     } else {
@@ -296,6 +334,13 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
       LOG_WARN("에러 발생, 재연결 시도...");
       led_set_color(1, LED_COLOR_YELLOW);
       g_ntrip_connected = false;
+
+      // GGA 송신 태스크 삭제
+      if (g_gga_send_task_handle != NULL) {
+        vTaskDelete(g_gga_send_task_handle);
+        g_gga_send_task_handle = NULL;
+        LOG_INFO("GGA 송신 태스크 삭제");
+      }
 
       tcp_close_force(sock);
       vTaskDelay(pdMS_TO_TICKS(NTRIP_RECONNECT_DELAY_MS));
@@ -324,12 +369,27 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
         } else if (queued_gga == 1) {
           LOG_INFO("재연결 완료 - 최신 GGA 1개 전송 예정");
         }
+
+        // GGA 송신 태스크 재생성
+        if (g_gga_send_task_handle == NULL) {
+          xTaskCreate(ntrip_gga_send_task, "gga_send", 1024, sock,
+                      tskIDLE_PRIORITY + 2, &g_gga_send_task_handle);
+          LOG_INFO("GGA 송신 태스크 재생성 완료");
+        }
       }
     }
   }
 
   // 연결 종료
   LOG_INFO("TCP 연결 종료");
+
+  // GGA 송신 태스크 삭제
+  if (g_gga_send_task_handle != NULL) {
+    vTaskDelete(g_gga_send_task_handle);
+    g_gga_send_task_handle = NULL;
+    LOG_INFO("GGA 송신 태스크 삭제");
+  }
+
   tcp_close(sock);
   tcp_socket_destroy(sock);
 

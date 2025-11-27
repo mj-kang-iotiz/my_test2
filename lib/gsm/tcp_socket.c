@@ -264,9 +264,21 @@ size_t tcp_available(tcp_socket_t *sock) {
  * gsm_tcp_send()가 비동기로 완료되면 호출됨
  */
 static void _internal_send_callback(at_resp_t *resp) {
-  // 비동기 전송이므로 별도 처리 없음
-  // 필요 시 로깅이나 통계 업데이트 가능
-  (void)resp; // 사용하지 않음
+  // 비동기 전송 완료 - 에러 체크 및 로깅
+  if (!resp) {
+    return;
+  }
+
+  // AT 응답 에러 체크 (필요시 로깅)
+  // 대부분의 경우 성공하므로 에러 시에만 로깅
+  if (resp->result != AT_RESP_OK) {
+    // 에러 발생 - 로깅만 하고 별도 처리 없음
+    // (재전송은 하지 않음 - 다음 데이터가 곧 올 것)
+    // LOG_WARN("TCP send failed: result=%d", resp->result);
+  }
+
+  // 성공 시에는 별도 처리 없음
+  // 통계가 필요하면 여기서 업데이트 가능
 }
 
 /**
