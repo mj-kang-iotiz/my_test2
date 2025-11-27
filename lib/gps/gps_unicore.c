@@ -8,14 +8,14 @@ uint32_t calc_crc32(uint8_t *buf, uint16_t len);
 
 static inline uint32_t calc_unicore_binary_chksum(gps_t *gps) {
 
-    uint16_t len = (gps->payload[7] | (gps->payload[8] << 8));
+    uint16_t len = (gps->payload[6] | (gps->payload[7] << 8));
     uint32_t crc32 = calc_crc32(gps->payload, len + GPS_UNICORE_BIN_HEADER_SIZE);
 
     return crc32;
 }
 
 /**
- * @brief ubx 프로토콜 체크섬 확인
+ * @brief unicore binary 프로토콜 체크섬 확인
  *
  * @param[in] gps
  * @return uint8_t 1: success, 0: fail
@@ -31,7 +31,7 @@ static inline uint8_t check_unicore_binary_chksum(gps_t *gps) {
 }
 
 /**
- * @brief 파싱한 ubx nav 프토토콜 데이터 저장
+ * @brief 파싱한 unicore binary BESTNAV 프로토콜 데이터 저장
  *
  * @param[inout] gps
  */
@@ -41,7 +41,7 @@ static void store_unicore_bin_bestnavb_data(gps_t *gps) {
 }
 
 /**
- * @brief 파싱한 ubx 프로토콜 데이터 저장
+ * @brief 파싱한 unicore binary 프로토콜 데이터 저장
  *
  * @param[inout] gps
  */
@@ -57,20 +57,19 @@ static void store_unicore_bin_data(gps_t *gps) {
 }
 
 /**
- * @brief ubx 프로토콜 파싱
+ * @brief unicore binary 프로토콜 파싱
  *
  * @param[inout] gps
  * @return uint8_t 1: success 0: checksum mismatch
  */
 uint8_t gps_parse_unicore_bin(gps_t *gps) {
   if (gps->pos == 6) {
-    memcpy(&gps->unicore_bin.header.message_id, &gps->payload[5], 2);
+    memcpy(&gps->unicore_bin.header.message_id, &gps->payload[4], 2);
     gps->state = GPS_PARSE_STATE_UNICORE_MESSAGE_ID;
   } else if (gps->pos == 8) {
-    memcpy(&gps->unicore_bin.header.message_len, &gps->payload[7], 2);
+    memcpy(&gps->unicore_bin.header.message_len, &gps->payload[6], 2);
     gps->state = GPS_PARSE_STATE_UNICORE_MESSAGE_LEN;
-  } 
-   else {
+  } else if (gps->pos > 8) {
     uint16_t message_len = gps->unicore_bin.header.message_len;
 
     if (gps->pos <= message_len + GPS_UNICORE_BIN_HEADER_SIZE) {

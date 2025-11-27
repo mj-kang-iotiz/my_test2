@@ -147,10 +147,10 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
         memset(gps->payload, 0, sizeof(gps->payload));
         gps->pos = 0;
         add_payload(gps, *d);
-      } else if(*d = 0x44 && gps->state = GPS_PARSE_STATE_UNICORE_SYNC1) {
+      } else if(*d == 0x44 && gps->state == GPS_PARSE_STATE_UNICORE_SYNC1) {
         gps->state = GPS_PARSE_STATE_UNICORE_SYNC2;
         add_payload(gps, *d);
-      } else if(*d = 0xB5 && gps->state = GPS_PARSE_STATE_UNICORE_SYNC2) {
+      } else if(*d == 0xB5 && gps->state == GPS_PARSE_STATE_UNICORE_SYNC2) {
         memset(&gps->unicore_bin, 0, sizeof(gps->unicore_bin));
         add_payload(gps, *d);
 
