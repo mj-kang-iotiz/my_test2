@@ -22,11 +22,12 @@
 #define NTRIP_CONTEXT_ID 1 // PDP context ID
 
 #define NTRIP_MAX_CONNECT_RETRY 3
-#define NTRIP_MAX_TIMEOUT_COUNT 2 // 연속 타임아웃 최대 허용 횟수 (빠른 재연결)
-#define NTRIP_RECONNECT_DELAY_MS 500 // 재연결 대기 시간 (ms) - 빠른 재연결
+#define NTRIP_MAX_TIMEOUT_COUNT 3 // 연속 타임아웃 최대 허용 횟수
+#define NTRIP_RECONNECT_DELAY_MS 500 // 재연결 대기 시간 (ms)
 
 #define NTRIP_GGA_QUEUE_SIZE 15 // GGA 전송 큐 크기 (재연결 중 버퍼링)
 #define NTRIP_GGA_MAX_LEN 100  // GGA 문장 최대 길이
+#define NTRIP_GGA_SEND_BATCH 5  // 한 루프당 최대 GGA 전송 개수 (GSM 버퍼 보호)
 
 // GGA 전송 큐 아이템
 typedef struct {
@@ -82,8 +83,8 @@ static int ntrip_connect_to_server(tcp_socket_t *sock) {
 
       LOG_INFO("HTTP 요청 전송 완료 (%d bytes)", ret);
 
-      // 수신 타임아웃 설정 (3초 - 빠른 연결 끊김 감지)
-      tcp_set_recv_timeout(sock, 3000);
+      // 수신 타임아웃 설정 (5초 - 네트워크 지연 고려)
+      tcp_set_recv_timeout(sock, 5000);
 
       // ICY 200 OK 수신
       ret = tcp_recv(sock, recv_buf, sizeof(recv_buf), 0);
@@ -176,16 +177,28 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
 
   // 무한 루프: 데이터 수신
   while (1) {
-    // GGA 큐 확인 및 전송 (non-blocking)
+    // GGA 큐 확인 및 전송 (한 루프당 최대 5개로 제한)
     ntrip_gga_queue_item_t gga_item;
-    while (g_ntrip_connected &&
+    int sent_count = 0;
+    while (g_ntrip_connected && sent_count < NTRIP_GGA_SEND_BATCH &&
            xQueueReceive(g_gga_send_queue, &gga_item, 0) == pdTRUE) {
       int send_ret = tcp_send(sock, (const uint8_t *)gga_item.data, gga_item.len);
       if (send_ret > 0) {
         LOG_INFO("Sent GGA to NTRIP (%d bytes): %.*s",
                  gga_item.len, gga_item.len, gga_item.data);
+        sent_count++;
       } else {
         LOG_WARN("Failed to send GGA to NTRIP: %d", send_ret);
+        // 전송 실패 시 루프 중단 (다음 recv 후 재시도)
+        break;
+      }
+    }
+
+    // 남은 GGA가 있으면 로깅
+    if (sent_count >= NTRIP_GGA_SEND_BATCH && g_ntrip_connected) {
+      UBaseType_t remaining = uxQueueMessagesWaiting(g_gga_send_queue);
+      if (remaining > 0) {
+        LOG_DEBUG("GGA batch sent (%d), %d remaining in queue", sent_count, remaining);
       }
     }
 
