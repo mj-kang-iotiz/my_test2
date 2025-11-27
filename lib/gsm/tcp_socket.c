@@ -100,10 +100,9 @@ int tcp_send(tcp_socket_t *sock, const uint8_t *data, size_t len) {
     return -1;
   }
 
-  // ★ 비동기 전송 (콜백 사용, 즉시 리턴)
-  // pbuf에 데이터 복사 후 즉시 리턴, AT 명령은 백그라운드 처리
-  int ret = gsm_tcp_send(sock->gsm, sock->connect_id, data, len,
-                         _internal_send_callback);
+  // ★ 동기 전송 (블로킹, AT 명령 완료까지 대기)
+  // 별도 송신 태스크에서 호출되므로 블로킹해도 수신에 영향 없음
+  int ret = gsm_tcp_send(sock->gsm, sock->connect_id, data, len, NULL);
 
   if (ret == 0) {
     return (int)len; // 전송 성공
@@ -257,29 +256,6 @@ size_t tcp_available(tcp_socket_t *sock) {
 //=============================================================================
 // 내부 콜백 (gsm_tcp_open에서 호출됨)
 //=============================================================================
-
-/**
- * @brief 내부 전송 완료 콜백 (비동기 전송용)
- *
- * gsm_tcp_send()가 비동기로 완료되면 호출됨
- */
-static void _internal_send_callback(at_resp_t *resp) {
-  // 비동기 전송 완료 - 에러 체크 및 로깅
-  if (!resp) {
-    return;
-  }
-
-  // AT 응답 에러 체크 (필요시 로깅)
-  // 대부분의 경우 성공하므로 에러 시에만 로깅
-  if (resp->result != AT_RESP_OK) {
-    // 에러 발생 - 로깅만 하고 별도 처리 없음
-    // (재전송은 하지 않음 - 다음 데이터가 곧 올 것)
-    // LOG_WARN("TCP send failed: result=%d", resp->result);
-  }
-
-  // 성공 시에는 별도 처리 없음
-  // 통계가 필요하면 여기서 업데이트 가능
-}
 
 /**
  * @brief 내부 수신 콜백
