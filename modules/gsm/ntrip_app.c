@@ -273,14 +273,10 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
         UBaseType_t queued_gga = uxQueueMessagesWaiting(g_gga_send_queue);
         LOG_WARN("연속 타임아웃 발생 또는 소켓 끊김, 재연결 시도... (큐에 GGA %d개 대기중)", queued_gga);
         led_set_color(1, LED_COLOR_YELLOW);
-        g_ntrip_connected = false;
 
-        // GGA 송신 태스크 삭제 (재연결 중에는 전송하지 않음)
-        if (g_gga_send_task_handle != NULL) {
-          vTaskDelete(g_gga_send_task_handle);
-          g_gga_send_task_handle = NULL;
-          LOG_INFO("GGA 송신 태스크 삭제");
-        }
+        // ★ 연결 상태만 false로 설정 (태스크는 살려둠)
+        // GGA 송신 태스크가 g_ntrip_connected를 확인하여 전송 스킵
+        g_ntrip_connected = false;
 
         // 기존 연결 닫기
         tcp_close_force(sock);
@@ -296,7 +292,6 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
         } else {
           LOG_INFO("재연결 성공");
           led_set_color(1, LED_COLOR_GREEN);
-          g_ntrip_connected = true;
           timeout_count = 0; // 타임아웃 카운터 리셋
 
           // 재연결 중 쌓인 오래된 GGA 버리기 (최신 1개만 유지)
@@ -314,12 +309,9 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
             LOG_INFO("재연결 완료 - 최신 GGA 1개 전송 예정");
           }
 
-          // GGA 송신 태스크 재생성
-          if (g_gga_send_task_handle == NULL) {
-            xTaskCreate(ntrip_gga_send_task, "gga_send", 1024, sock,
-                        tskIDLE_PRIORITY + 2, &g_gga_send_task_handle);
-            LOG_INFO("GGA 송신 태스크 재생성 완료");
-          }
+          // ★ 연결 상태 true로 복원 (태스크는 계속 실행 중)
+          // GGA 송신 태스크가 다시 정상 전송 시작
+          g_ntrip_connected = true;
         }
       }
     } else {
@@ -333,14 +325,9 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
       // 에러 발생 시 재연결 시도
       LOG_WARN("에러 발생, 재연결 시도...");
       led_set_color(1, LED_COLOR_YELLOW);
-      g_ntrip_connected = false;
 
-      // GGA 송신 태스크 삭제
-      if (g_gga_send_task_handle != NULL) {
-        vTaskDelete(g_gga_send_task_handle);
-        g_gga_send_task_handle = NULL;
-        LOG_INFO("GGA 송신 태스크 삭제");
-      }
+      // ★ 연결 상태만 false로 설정 (태스크는 살려둠)
+      g_ntrip_connected = false;
 
       tcp_close_force(sock);
       vTaskDelay(pdMS_TO_TICKS(NTRIP_RECONNECT_DELAY_MS));
@@ -351,7 +338,6 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
         vTaskDelay(pdMS_TO_TICKS(NTRIP_RECONNECT_DELAY_MS * 2));
       } else {
         LOG_INFO("재연결 성공");
-        g_ntrip_connected = true;
         timeout_count = 0;
         led_set_color(1, LED_COLOR_GREEN);
 
@@ -370,12 +356,8 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
           LOG_INFO("재연결 완료 - 최신 GGA 1개 전송 예정");
         }
 
-        // GGA 송신 태스크 재생성
-        if (g_gga_send_task_handle == NULL) {
-          xTaskCreate(ntrip_gga_send_task, "gga_send", 1024, sock,
-                      tskIDLE_PRIORITY + 2, &g_gga_send_task_handle);
-          LOG_INFO("GGA 송신 태스크 재생성 완료");
-        }
+        // ★ 연결 상태 true로 복원 (태스크는 계속 실행 중)
+        g_ntrip_connected = true;
       }
     }
   }
