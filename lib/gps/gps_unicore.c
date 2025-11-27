@@ -21,19 +21,17 @@ gps_unicore_resp_t gps_get_unicore_response(gps_t *gps) {
  *
  * @param[inout] gps
  * @return uint8_t 1: 파싱 완료, 0: 계속 파싱 중
+ *
+ * @note 프로토콜 전환 후 term 번호:
+ *       term_num 1: 명령어 echo (예: "mode base time 60")
+ *       term_num 2: response (예: "response: OK")
  */
 uint8_t gps_parse_unicore_term(gps_t *gps) {
   char *term = gps->unicore.term_str;
 
-  // term_num 0: command ($ 제외)
-  if (gps->unicore.term_num == 0) {
-    if (strcmp(term, "command") == 0) {
-      gps->unicore.msg_type = GPS_UNICORE_MSG_COMMAND;
-    }
-  }
   // term_num 1: 명령어 echo (무시)
   // term_num 2: response: OK 또는 response: ERROR
-  else if (gps->unicore.term_num == 2) {
+  if (gps->unicore.term_num == 2) {
     if (strstr(term, "OK") != NULL) {
       gps->unicore.response = GPS_UNICORE_RESP_OK;
     } else if (strstr(term, "ERROR") != NULL) {
