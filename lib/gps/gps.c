@@ -209,9 +209,10 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
 
       if (*d == ',') {
             if (gps->nmea.term_num == 0 && strcmp(gps->nmea.term_str, "command") == 0) {
-              // UNICORE로 전환: NMEA CRC만 복사
+              // UNICORE로 전환: NMEA CRC만 복사하고 NMEA 상태 정리
               memset(&gps->unicore, 0, sizeof(gps->unicore));
               gps->unicore.crc = gps->nmea.crc;  // CRC만 복사
+              memset(&gps->nmea, 0, sizeof(gps->nmea));  // NMEA 상태 정리
               gps->protocol = GPS_PROTOCOL_UNICORE;
               gps->state = GPS_PARSE_STATE_UNICORE_START;
               gps->unicore.msg_type = GPS_UNICORE_MSG_COMMAND;
