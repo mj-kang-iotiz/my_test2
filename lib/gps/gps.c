@@ -169,11 +169,29 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
 
         gps->protocol = GPS_PROTOCOL_NMEA;
         gps->state = GPS_PARSE_STATE_NMEA_START;
-      } 
-      /* UBX binary */
-      else if (*d == 0xB5) {
+      }
+      /* UNICORE binary - check state-based conditions first */
+      else if(*d == 0xAA) {
+        gps->state = GPS_PARSE_STATE_UNICORE_SYNC1;
+        memset(gps->payload, 0, sizeof(gps->payload));
+        gps->pos = 0;
+        add_payload(gps, *d);
+      }
+      else if(*d == 0x44 && gps->state == GPS_PARSE_STATE_UNICORE_SYNC1) {
+        gps->state = GPS_PARSE_STATE_UNICORE_SYNC2;
+        add_payload(gps, *d);
+      }
+      else if(*d == 0xB5 && gps->state == GPS_PARSE_STATE_UNICORE_SYNC2) {
+        memset(&gps->unicore_bin, 0, sizeof(gps->unicore_bin));
+        add_payload(gps, *d);
+
+        gps->protocol = GPS_PROTOCOL_UNICORE_BIN;
+        gps->state = GPS_PARSE_STATE_UNICORE_SYNC3;
+      }
+      /* UBX binary - only when state is NONE to avoid conflict with UNICORE sync3 */
+      else if (*d == 0xB5 && gps->state == GPS_PARSE_STATE_NONE) {
         gps->state = GPS_PARSE_STATE_UBX_SYNC_1;
-      } 
+      }
       else if (*d == 0x62 && gps->state == GPS_PARSE_STATE_UBX_SYNC_1) {
         memset(gps->payload, 0, sizeof(gps->payload));
         memset(&gps->ubx, 0, sizeof(gps->ubx));
@@ -181,22 +199,6 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
 
         gps->protocol = GPS_PROTOCOL_UBX;
         gps->state = GPS_PARSE_STATE_UBX_SYNC_2;
-      } 
-      /* UNICORE binary */
-      else if(*d == 0xAA) {
-        gps->state = GPS_PARSE_STATE_UNICORE_SYNC1;
-        memset(gps->payload, 0, sizeof(gps->payload));
-        gps->pos = 0;
-        add_payload(gps, *d);
-      } else if(*d == 0x44 && gps->state == GPS_PARSE_STATE_UNICORE_SYNC1) {
-        gps->state = GPS_PARSE_STATE_UNICORE_SYNC2;
-        add_payload(gps, *d);
-      } else if(*d == 0xB5 && gps->state == GPS_PARSE_STATE_UNICORE_SYNC2) {
-        memset(&gps->unicore_bin, 0, sizeof(gps->unicore_bin));
-        add_payload(gps, *d);
-
-        gps->protocol = GPS_PROTOCOL_UNICORE_BIN;
-        gps->state = GPS_PARSE_STATE_UNICORE_SYNC3;
       }
       else {
         gps->state = GPS_PARSE_STATE_NONE;
