@@ -5,8 +5,27 @@
 #include "board_config.h"
 #include "gps.h"
 #include "queue.h"
+#include "semphr.h"
 #include "task.h"
 
+typedef void (*gps_command_callback_t)(bool success, void *user_data);
+
+typedef struct {
+  char cmd[128];                  // 전송할 명령어
+  uint32_t timeout_ms;            // 타임아웃 (ms)
+  bool is_async;                  // true: 비동기, false: 동기
+
+  SemaphoreHandle_t response_sem; // 응답 대기용 세마포어
+  bool *result;                   // 응답 결과 (true: OK, false: ERROR/TIMEOUT)
+
+  gps_command_callback_t callback; // 완료 콜백
+  void *user_data;                 // 사용자 데이터
+  bool async_result;               // 비동기 결과 저장용
+} gps_cmd_request_t;
+
+bool gps_send_command_sync(gps_id_t id, const char *cmd, uint32_t timeout_ms);
+bool gps_send_command_async(gps_id_t id, const char *cmd, uint32_t timeout_ms,
+                             gps_command_callback_t callback, void *user_data);
 /**
  * @brief GPS 초기화 (board_config 기반)
  *
