@@ -6,6 +6,17 @@
 #include "gps.h"
 #include "queue.h"
 #include "task.h"
+#include "semphr.h"
+
+/**
+ * @brief GPS 명령어 요청 구조체
+ */
+typedef struct {
+  char cmd[128];                  // 전송할 명령어
+  SemaphoreHandle_t response_sem; // 응답 대기용 세마포어
+  bool *result;                   // 응답 결과 (true: OK, false: ERROR/TIMEOUT)
+  uint32_t timeout_ms;            // 타임아웃 (ms)
+} gps_cmd_request_t;
 
 /**
  * @brief GPS 초기화 (board_config 기반)
@@ -54,5 +65,15 @@ bool gps_gga_avg_can_read(gps_id_t id);
  * @return true: 성공, false: 실패
  */
 bool gps_get_gga_avg(gps_id_t id, double *lat, double *lon, double *alt);
+
+/**
+ * @brief GPS 명령어 전송 (동기 방식)
+ *
+ * @param id GPS ID
+ * @param cmd 전송할 명령어 문자열 (예: "mode base time 60\r\n")
+ * @param timeout_ms 응답 대기 타임아웃 (ms)
+ * @return true: OK 응답 수신, false: ERROR 응답 또는 타임아웃
+ */
+bool gps_send_command_sync(gps_id_t id, const char *cmd, uint32_t timeout_ms);
 
 #endif

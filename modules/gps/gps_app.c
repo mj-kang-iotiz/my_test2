@@ -2,6 +2,7 @@
 #include "board_config.h"
 #include "gps.h"
 #include "gps_port.h"
+#include "gps_unicore.h"
 #include "led.h"
 #include <string.h>
 
@@ -71,6 +72,11 @@ typedef struct {
     uint8_t len;
     bool can_read;
   } gga_avg_data;
+
+  // TX Task 관련
+  QueueHandle_t cmd_queue;
+  TaskHandle_t tx_task;
+  gps_cmd_request_t *current_cmd_req; // 현재 처리 중인 명령어 요청
 } gps_instance_t;
 
 static gps_instance_t gps_instances[GPS_ID_MAX] = {0};
@@ -219,6 +225,21 @@ void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
         _add_hp_avg_data(inst);
       }
     }
+    break;
+
+  case GPS_PROTOCOL_UNICORE:
+    // Unicore 명령어 응답 처리
+    if (inst->current_cmd_req != NULL) {
+      gps_unicore_resp_t resp = gps_get_unicore_response(gps);
+      if (resp == GPS_UNICORE_RESP_OK) {
+        *(inst->current_cmd_req->result) = true;
+        xSemaphoreGive(inst->current_cmd_req->response_sem);
+      } else if (resp == GPS_UNICORE_RESP_ERROR) {
+        *(inst->current_cmd_req->result) = false;
+        xSemaphoreGive(inst->current_cmd_req->response_sem);
+      }
+    }
+    break;
 
   default:
     break;
@@ -226,7 +247,63 @@ void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
 }
 
 /**
- * @brief GPS 태스크
+ * @brief GPS TX 태스크 - 명령어 전송 전담
+ *
+ * @param pvParameter GPS ID
+ */
+static void gps_tx_task(void *pvParameter) {
+  gps_id_t id = (gps_id_t)(uintptr_t)pvParameter;
+  gps_instance_t *inst = &gps_instances[id];
+  gps_cmd_request_t cmd_req;
+
+  LOG_INFO("GPS TX Task[%d] started", id);
+
+  while (1) {
+    // 명령어 큐에서 요청 대기
+    if (xQueueReceive(inst->cmd_queue, &cmd_req, portMAX_DELAY) == pdTRUE) {
+      LOG_INFO("GPS[%d] Sending command: %s", id, cmd_req.cmd);
+
+      // 현재 명령어 요청 저장 (RX Task에서 응답 처리용)
+      inst->current_cmd_req = &cmd_req;
+
+      // 응답 초기화
+      *(cmd_req.result) = false;
+
+      // 명령어 전송
+      if (inst->gps.ops && inst->gps.ops->send) {
+        inst->gps.ops->send(cmd_req.cmd, strlen(cmd_req.cmd));
+      } else {
+        LOG_ERR("GPS[%d] send ops not available", id);
+        *(cmd_req.result) = false;
+        xSemaphoreGive(cmd_req.response_sem);
+        inst->current_cmd_req = NULL;
+        continue;
+      }
+
+      // 응답 대기 (타임아웃 적용)
+      if (xSemaphoreTake(cmd_req.response_sem, pdMS_TO_TICKS(cmd_req.timeout_ms)) == pdTRUE) {
+        // 응답 수신 완료 (RX Task가 세마포어를 줌)
+        LOG_INFO("GPS[%d] Response received: %s", id,
+                 *(cmd_req.result) ? "OK" : "ERROR");
+      } else {
+        // 타임아웃
+        LOG_WARN("GPS[%d] Command timeout", id);
+        *(cmd_req.result) = false;
+      }
+
+      // 현재 명령어 요청 초기화
+      inst->current_cmd_req = NULL;
+
+      // 외부 호출자에게 처리 완료 알림 (세마포어 반환)
+      xSemaphoreGive(cmd_req.response_sem);
+    }
+  }
+
+  vTaskDelete(NULL);
+}
+
+/**
+ * @brief GPS RX 태스크 - 수신 전담
  *
  * @param pvParameter
  */
@@ -358,22 +435,30 @@ void gps_init_all(void) {
       continue;
     }
 
-    // 큐 생성 및 설정
+    // RX 큐 생성 및 설정
     gps_instances[i].queue = xQueueCreate(10, sizeof(uint8_t));
     if (gps_instances[i].queue == NULL) {
-      LOG_ERR("GPS[%d] 큐 생성 실패", i);
+      LOG_ERR("GPS[%d] RX 큐 생성 실패", i);
       gps_instances[i].enabled = false;
       continue;
     }
 
     gps_port_set_queue((gps_id_t)i, gps_instances[i].queue);
 
+    // TX 명령어 큐 생성
+    gps_instances[i].cmd_queue = xQueueCreate(5, sizeof(gps_cmd_request_t));
+    if (gps_instances[i].cmd_queue == NULL) {
+      LOG_ERR("GPS[%d] TX 큐 생성 실패", i);
+      gps_instances[i].enabled = false;
+      continue;
+    }
+
     // UART 시작
     gps_port_start(&gps_instances[i].gps);
 
-    // 태스크 생성
+    // RX 태스크 생성
     char task_name[16];
-    snprintf(task_name, sizeof(task_name), "gps_%d", i);
+    snprintf(task_name, sizeof(task_name), "gps_rx_%d", i);
 
     BaseType_t ret =
         xTaskCreate(gps_process_task, task_name, 2048,
@@ -381,12 +466,25 @@ void gps_init_all(void) {
                     tskIDLE_PRIORITY + 1, &gps_instances[i].task);
 
     if (ret != pdPASS) {
-      LOG_ERR("GPS[%d] 태스크 생성 실패", i);
+      LOG_ERR("GPS[%d] RX 태스크 생성 실패", i);
       gps_instances[i].enabled = false;
       continue;
     }
 
-    LOG_INFO("GPS[%d] 초기화 완료", i);
+    // TX 태스크 생성
+    snprintf(task_name, sizeof(task_name), "gps_tx_%d", i);
+
+    ret = xTaskCreate(gps_tx_task, task_name, 2048,
+                      (void *)(uintptr_t)i, // GPS ID를 파라미터로 전달
+                      tskIDLE_PRIORITY + 1, &gps_instances[i].tx_task);
+
+    if (ret != pdPASS) {
+      LOG_ERR("GPS[%d] TX 태스크 생성 실패", i);
+      gps_instances[i].enabled = false;
+      continue;
+    }
+
+    LOG_INFO("GPS[%d] 초기화 완료 (RX + TX Task)", i);
   }
 
   LOG_INFO("GPS 전체 초기화 완료");
@@ -434,4 +532,63 @@ bool gps_get_gga_avg(gps_id_t id, double *lat, double *lon, double *alt) {
     *alt = gps_instances[id].gga_avg_data.alt_avg;
 
   return true;
+}
+
+/**
+ * @brief GPS 명령어 전송 (동기 방식)
+ *
+ * @param id GPS ID
+ * @param cmd 전송할 명령어 문자열 (예: "mode base time 60\r\n")
+ * @param timeout_ms 응답 대기 타임아웃 (ms)
+ * @return true: OK 응답 수신, false: ERROR 응답 또는 타임아웃
+ */
+bool gps_send_command_sync(gps_id_t id, const char *cmd, uint32_t timeout_ms) {
+  if (id >= GPS_ID_MAX || !gps_instances[id].enabled) {
+    LOG_ERR("GPS[%d] invalid or disabled", id);
+    return false;
+  }
+
+  if (!cmd || strlen(cmd) == 0) {
+    LOG_ERR("GPS[%d] empty command", id);
+    return false;
+  }
+
+  gps_instance_t *inst = &gps_instances[id];
+
+  // 세마포어 생성 (응답 대기용)
+  SemaphoreHandle_t response_sem = xSemaphoreCreateBinary();
+  if (response_sem == NULL) {
+    LOG_ERR("GPS[%d] failed to create semaphore", id);
+    return false;
+  }
+
+  // 명령어 요청 구조체 생성
+  bool result = false;
+  gps_cmd_request_t cmd_req = {
+      .response_sem = response_sem,
+      .result = &result,
+      .timeout_ms = timeout_ms,
+  };
+  strncpy(cmd_req.cmd, cmd, sizeof(cmd_req.cmd) - 1);
+  cmd_req.cmd[sizeof(cmd_req.cmd) - 1] = '\0';
+
+  // TX 태스크로 명령어 전송 요청
+  if (xQueueSend(inst->cmd_queue, &cmd_req, pdMS_TO_TICKS(1000)) != pdTRUE) {
+    LOG_ERR("GPS[%d] failed to send command to TX task", id);
+    vSemaphoreDelete(response_sem);
+    return false;
+  }
+
+  // TX 태스크에서 처리 완료 대기
+  // TX 태스크가 응답을 받거나 타임아웃되면 세마포어를 줌
+  if (xSemaphoreTake(response_sem, pdMS_TO_TICKS(timeout_ms + 1000)) == pdTRUE) {
+    // 처리 완료
+    vSemaphoreDelete(response_sem);
+    return result;
+  } else {
+    // 외부 타임아웃 (TX 태스크 응답 없음)
+    LOG_ERR("GPS[%d] TX task did not respond", id);
+    vSemaphoreDelete(response_sem);
+    return false;
+  }
 }
