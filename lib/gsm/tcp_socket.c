@@ -100,7 +100,8 @@ int tcp_send(tcp_socket_t *sock, const uint8_t *data, size_t len) {
     return -1;
   }
 
-  // ★ 동기식 전송
+  // ★ 동기 전송 (블로킹, AT 명령 완료까지 대기)
+  // 별도 송신 태스크에서 호출되므로 블로킹해도 수신에 영향 없음
   int ret = gsm_tcp_send(sock->gsm, sock->connect_id, data, len, NULL);
 
   if (ret == 0) {
