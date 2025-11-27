@@ -22,10 +22,10 @@
 #define NTRIP_CONTEXT_ID 1 // PDP context ID
 
 #define NTRIP_MAX_CONNECT_RETRY 3
-#define NTRIP_MAX_TIMEOUT_COUNT 3 // 연속 타임아웃 최대 허용 횟수
-#define NTRIP_RECONNECT_DELAY_MS 2000 // 재연결 대기 시간 (ms)
+#define NTRIP_MAX_TIMEOUT_COUNT 2 // 연속 타임아웃 최대 허용 횟수 (빠른 재연결)
+#define NTRIP_RECONNECT_DELAY_MS 500 // 재연결 대기 시간 (ms) - 빠른 재연결
 
-#define NTRIP_GGA_QUEUE_SIZE 5 // GGA 전송 큐 크기
+#define NTRIP_GGA_QUEUE_SIZE 15 // GGA 전송 큐 크기 (재연결 중 버퍼링)
 #define NTRIP_GGA_MAX_LEN 100  // GGA 문장 최대 길이
 
 // GGA 전송 큐 아이템
@@ -82,8 +82,8 @@ static int ntrip_connect_to_server(tcp_socket_t *sock) {
 
       LOG_INFO("HTTP 요청 전송 완료 (%d bytes)", ret);
 
-      // 수신 타임아웃 설정 (10초)
-      tcp_set_recv_timeout(sock, 10000);
+      // 수신 타임아웃 설정 (3초 - 빠른 연결 끊김 감지)
+      tcp_set_recv_timeout(sock, 3000);
 
       // ICY 200 OK 수신
       ret = tcp_recv(sock, recv_buf, sizeof(recv_buf), 0);
@@ -232,7 +232,9 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
 
       // 연속 타임아웃 최대 횟수 초과 시 재연결
       if (timeout_count >= NTRIP_MAX_TIMEOUT_COUNT) {
-        LOG_WARN("연속 타임아웃 발생 또는 소켓 끊김, 재연결 시도...");
+        // 재연결 시작 전 큐 상태 확인
+        UBaseType_t queued_gga = uxQueueMessagesWaiting(g_gga_send_queue);
+        LOG_WARN("연속 타임아웃 발생 또는 소켓 끊김, 재연결 시도... (큐에 GGA %d개 대기중)", queued_gga);
         led_set_color(1, LED_COLOR_YELLOW);
         g_ntrip_connected = false;
 
@@ -252,6 +254,12 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
           led_set_color(1, LED_COLOR_GREEN);
           g_ntrip_connected = true;
           timeout_count = 0; // 타임아웃 카운터 리셋
+
+          // 재연결 중 쌓인 GGA 개수 확인
+          UBaseType_t queued_gga = uxQueueMessagesWaiting(g_gga_send_queue);
+          if (queued_gga > 0) {
+            LOG_INFO("재연결 완료 - 대기 중인 GGA %d개 전송 예정", queued_gga);
+          }
         }
       }
     } else {
@@ -279,6 +287,12 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
         g_ntrip_connected = true;
         timeout_count = 0;
         led_set_color(1, LED_COLOR_GREEN);
+
+        // 재연결 중 쌓인 GGA 개수 확인
+        UBaseType_t queued_gga = uxQueueMessagesWaiting(g_gga_send_queue);
+        if (queued_gga > 0) {
+          LOG_INFO("재연결 완료 - 대기 중인 GGA %d개 전송 예정", queued_gga);
+        }
       }
     }
   }
