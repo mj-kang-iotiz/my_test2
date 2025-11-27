@@ -232,10 +232,18 @@ void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
     if (inst->current_cmd_req != NULL) {
       gps_unicore_resp_t resp = gps_get_unicore_response(gps);
       if (resp == GPS_UNICORE_RESP_OK) {
-        *(inst->current_cmd_req->result) = true;
+        if (inst->current_cmd_req->is_async) {
+          inst->current_cmd_req->async_result = true;
+        } else {
+          *(inst->current_cmd_req->result) = true;
+        }
         xSemaphoreGive(inst->current_cmd_req->response_sem);
       } else if (resp == GPS_UNICORE_RESP_ERROR) {
-        *(inst->current_cmd_req->result) = false;
+        if (inst->current_cmd_req->is_async) {
+          inst->current_cmd_req->async_result = false;
+        } else {
+          *(inst->current_cmd_req->result) = false;
+        }
         xSemaphoreGive(inst->current_cmd_req->response_sem);
       }
     }
@@ -267,15 +275,27 @@ static void gps_tx_task(void *pvParameter) {
       inst->current_cmd_req = &cmd_req;
 
       // 응답 초기화
-      *(cmd_req.result) = false;
+      if (cmd_req.is_async) {
+        cmd_req.async_result = false;
+      } else {
+        *(cmd_req.result) = false;
+      }
 
       // 명령어 전송
       if (inst->gps.ops && inst->gps.ops->send) {
         inst->gps.ops->send(cmd_req.cmd, strlen(cmd_req.cmd));
       } else {
         LOG_ERR("GPS[%d] send ops not available", id);
-        *(cmd_req.result) = false;
-        xSemaphoreGive(cmd_req.response_sem);
+        if (cmd_req.is_async) {
+          cmd_req.async_result = false;
+          if (cmd_req.callback) {
+            cmd_req.callback(false, cmd_req.user_data);
+          }
+          vSemaphoreDelete(cmd_req.response_sem);
+        } else {
+          *(cmd_req.result) = false;
+          xSemaphoreGive(cmd_req.response_sem);
+        }
         inst->current_cmd_req = NULL;
         continue;
       }
@@ -283,19 +303,38 @@ static void gps_tx_task(void *pvParameter) {
       // 응답 대기 (타임아웃 적용)
       if (xSemaphoreTake(cmd_req.response_sem, pdMS_TO_TICKS(cmd_req.timeout_ms)) == pdTRUE) {
         // 응답 수신 완료 (RX Task가 세마포어를 줌)
-        LOG_INFO("GPS[%d] Response received: %s", id,
-                 *(cmd_req.result) ? "OK" : "ERROR");
+        if (cmd_req.is_async) {
+          LOG_INFO("GPS[%d] Response received: %s", id,
+                   cmd_req.async_result ? "OK" : "ERROR");
+        } else {
+          LOG_INFO("GPS[%d] Response received: %s", id,
+                   *(cmd_req.result) ? "OK" : "ERROR");
+        }
       } else {
         // 타임아웃
         LOG_WARN("GPS[%d] Command timeout", id);
-        *(cmd_req.result) = false;
+        if (cmd_req.is_async) {
+          cmd_req.async_result = false;
+        } else {
+          *(cmd_req.result) = false;
+        }
       }
 
       // 현재 명령어 요청 초기화
       inst->current_cmd_req = NULL;
 
-      // 외부 호출자에게 처리 완료 알림 (세마포어 반환)
-      xSemaphoreGive(cmd_req.response_sem);
+      // 비동기: 콜백 호출 및 세마포어 삭제
+      if (cmd_req.is_async) {
+        if (cmd_req.callback) {
+          cmd_req.callback(cmd_req.async_result, cmd_req.user_data);
+        }
+        // 비동기는 세마포어를 TX Task에서 삭제
+        vSemaphoreDelete(cmd_req.response_sem);
+      } else {
+        // 동기: 외부 호출자에게 처리 완료 알림 (세마포어 반환)
+        xSemaphoreGive(cmd_req.response_sem);
+        // 동기는 외부 함수에서 세마포어 삭제
+      }
     }
   }
 
@@ -562,12 +601,15 @@ bool gps_send_command_sync(gps_id_t id, const char *cmd, uint32_t timeout_ms) {
     return false;
   }
 
-  // 명령어 요청 구조체 생성
+  // 명령어 요청 구조체 생성 (동기 방식)
   bool result = false;
   gps_cmd_request_t cmd_req = {
+      .timeout_ms = timeout_ms,
+      .is_async = false,
       .response_sem = response_sem,
       .result = &result,
-      .timeout_ms = timeout_ms,
+      .callback = NULL,
+      .user_data = NULL,
   };
   strncpy(cmd_req.cmd, cmd, sizeof(cmd_req.cmd) - 1);
   cmd_req.cmd[sizeof(cmd_req.cmd) - 1] = '\0';
@@ -591,4 +633,61 @@ bool gps_send_command_sync(gps_id_t id, const char *cmd, uint32_t timeout_ms) {
     vSemaphoreDelete(response_sem);
     return false;
   }
+}
+
+/**
+ * @brief GPS 명령어 전송 (비동기 방식)
+ *
+ * @param id GPS ID
+ * @param cmd 전송할 명령어 문자열 (예: "mode base time 60\r\n")
+ * @param timeout_ms 응답 대기 타임아웃 (ms)
+ * @param callback 완료 콜백 함수 (NULL 가능)
+ * @param user_data 콜백에 전달할 사용자 데이터
+ * @return true: 명령어 큐에 추가 성공, false: 실패
+ */
+bool gps_send_command_async(gps_id_t id, const char *cmd, uint32_t timeout_ms,
+                             gps_command_callback_t callback, void *user_data) {
+  if (id >= GPS_ID_MAX || !gps_instances[id].enabled) {
+    LOG_ERR("GPS[%d] invalid or disabled", id);
+    return false;
+  }
+
+  if (!cmd || strlen(cmd) == 0) {
+    LOG_ERR("GPS[%d] empty command", id);
+    return false;
+  }
+
+  gps_instance_t *inst = &gps_instances[id];
+
+  // 세마포어 생성 (TX Task 내부에서 응답 대기용)
+  SemaphoreHandle_t response_sem = xSemaphoreCreateBinary();
+  if (response_sem == NULL) {
+    LOG_ERR("GPS[%d] failed to create semaphore", id);
+    return false;
+  }
+
+  // 명령어 요청 구조체 생성 (비동기 방식)
+  gps_cmd_request_t cmd_req = {
+      .timeout_ms = timeout_ms,
+      .is_async = true,
+      .response_sem = response_sem,
+      .result = NULL,
+      .callback = callback,
+      .user_data = user_data,
+      .async_result = false,
+  };
+  strncpy(cmd_req.cmd, cmd, sizeof(cmd_req.cmd) - 1);
+  cmd_req.cmd[sizeof(cmd_req.cmd) - 1] = '\0';
+
+  // TX 태스크로 명령어 전송 요청
+  if (xQueueSend(inst->cmd_queue, &cmd_req, pdMS_TO_TICKS(1000)) != pdTRUE) {
+    LOG_ERR("GPS[%d] failed to send command to TX task", id);
+    vSemaphoreDelete(response_sem);
+    return false;
+  }
+
+  // 즉시 반환 (non-blocking)
+  // TX Task가 처리를 완료하면 콜백 호출
+  LOG_INFO("GPS[%d] Async command queued", id);
+  return true;
 }
