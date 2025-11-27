@@ -268,10 +268,19 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
           g_ntrip_connected = true;
           timeout_count = 0; // 타임아웃 카운터 리셋
 
-          // 재연결 중 쌓인 GGA 개수 확인
+          // 재연결 중 쌓인 오래된 GGA 버리기 (최신 1개만 유지)
           UBaseType_t queued_gga = uxQueueMessagesWaiting(g_gga_send_queue);
-          if (queued_gga > 0) {
-            LOG_INFO("재연결 완료 - 대기 중인 GGA %d개 전송 예정", queued_gga);
+          if (queued_gga > 1) {
+            LOG_INFO("재연결 완료 - 오래된 GGA %d개 드롭, 최신 1개만 전송", queued_gga - 1);
+
+            // 오래된 데이터 모두 제거
+            ntrip_gga_queue_item_t old_item;
+            while (queued_gga > 1) {
+              xQueueReceive(g_gga_send_queue, &old_item, 0);
+              queued_gga--;
+            }
+          } else if (queued_gga == 1) {
+            LOG_INFO("재연결 완료 - 최신 GGA 1개 전송 예정");
           }
         }
       }
@@ -301,10 +310,19 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
         timeout_count = 0;
         led_set_color(1, LED_COLOR_GREEN);
 
-        // 재연결 중 쌓인 GGA 개수 확인
+        // 재연결 중 쌓인 오래된 GGA 버리기 (최신 1개만 유지)
         UBaseType_t queued_gga = uxQueueMessagesWaiting(g_gga_send_queue);
-        if (queued_gga > 0) {
-          LOG_INFO("재연결 완료 - 대기 중인 GGA %d개 전송 예정", queued_gga);
+        if (queued_gga > 1) {
+          LOG_INFO("재연결 완료 - 오래된 GGA %d개 드롭, 최신 1개만 전송", queued_gga - 1);
+
+          // 오래된 데이터 모두 제거
+          ntrip_gga_queue_item_t old_item;
+          while (queued_gga > 1) {
+            xQueueReceive(g_gga_send_queue, &old_item, 0);
+            queued_gga--;
+          }
+        } else if (queued_gga == 1) {
+          LOG_INFO("재연결 완료 - 최신 GGA 1개 전송 예정");
         }
       }
     }
