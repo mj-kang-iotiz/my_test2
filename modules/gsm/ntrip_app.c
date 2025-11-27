@@ -2,6 +2,7 @@
 #include "FreeRTOS.h"
 #include "gps_app.h"
 #include "led.h"
+#include "queue.h"
 #include "task.h"
 #include "tcp_socket.h"
 #include <string.h>
@@ -22,7 +23,17 @@
 
 #define NTRIP_MAX_CONNECT_RETRY 3
 #define NTRIP_MAX_TIMEOUT_COUNT 3 // 연속 타임아웃 최대 허용 횟수
-#define NTRIP_RECONNECT_DELAY_MS 2000 // 재연결 대기 시간 (ms)
+#define NTRIP_RECONNECT_DELAY_MS 500 // 재연결 대기 시간 (ms)
+
+#define NTRIP_GGA_QUEUE_SIZE 15 // GGA 전송 큐 크기 (재연결 중 버퍼링)
+#define NTRIP_GGA_MAX_LEN 100  // GGA 문장 최대 길이
+#define NTRIP_GGA_SEND_BATCH 5  // 한 루프당 최대 GGA 전송 개수 (GSM 버퍼 보호)
+
+// GGA 전송 큐 아이템
+typedef struct {
+  char data[NTRIP_GGA_MAX_LEN];
+  uint8_t len;
+} ntrip_gga_queue_item_t;
 
 // NTRIP HTTP 요청
 static const char NTRIP_HTTP_REQUEST[] =
@@ -34,6 +45,13 @@ static const char NTRIP_HTTP_REQUEST[] =
     "\r\n";
 
 uint8_t recv_buf[1500];
+
+// NTRIP TCP 소켓 (GGA 전송용)
+static tcp_socket_t *g_ntrip_socket = NULL;
+static bool g_ntrip_connected = false;
+
+// GGA 전송 큐
+static QueueHandle_t g_gga_send_queue = NULL;
 
 static int ntrip_connect_to_server(tcp_socket_t *sock) {
   int ret;
@@ -65,8 +83,8 @@ static int ntrip_connect_to_server(tcp_socket_t *sock) {
 
       LOG_INFO("HTTP 요청 전송 완료 (%d bytes)", ret);
 
-      // 수신 타임아웃 설정 (10초)
-      tcp_set_recv_timeout(sock, 10000);
+      // 수신 타임아웃 설정 (5초 - 네트워크 지연 고려)
+      tcp_set_recv_timeout(sock, 5000);
 
       // ICY 200 OK 수신
       ret = tcp_recv(sock, recv_buf, sizeof(recv_buf), 0);
@@ -105,6 +123,17 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
 
   LOG_INFO("NTRIP 태스크 시작");
 
+  // GGA 전송 큐 생성
+  if (!g_gga_send_queue) {
+    g_gga_send_queue = xQueueCreate(NTRIP_GGA_QUEUE_SIZE, sizeof(ntrip_gga_queue_item_t));
+    if (!g_gga_send_queue) {
+      LOG_ERR("Failed to create GGA send queue");
+      vTaskDelete(NULL);
+      return;
+    }
+    LOG_INFO("GGA send queue created (size=%d)", NTRIP_GGA_QUEUE_SIZE);
+  }
+
   // TCP 소켓 생성
   sock = tcp_socket_create(gsm, NTRIP_CONNECT_ID);
   if (!sock) {
@@ -114,13 +143,18 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
   }
   LOG_INFO("TCP 소켓 생성 완료");
 
+  // 전역 소켓 저장
+  g_ntrip_socket = sock;
+
   if (ntrip_connect_to_server(sock) != 0) {
     LOG_ERR("초기 연결 실패");
+    g_ntrip_connected = false;
     tcp_socket_destroy(sock);
     vTaskDelete(NULL);
     return;
   }
 
+  g_ntrip_connected = true;
   gsm_socket_monitor_start();
 
   // HTTP 요청 전송 (한 번만)
@@ -143,6 +177,31 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
 
   // 무한 루프: 데이터 수신
   while (1) {
+    // GGA 큐 확인 및 전송 (한 루프당 최대 5개로 제한)
+    ntrip_gga_queue_item_t gga_item;
+    int sent_count = 0;
+    while (g_ntrip_connected && sent_count < NTRIP_GGA_SEND_BATCH &&
+           xQueueReceive(g_gga_send_queue, &gga_item, 0) == pdTRUE) {
+      int send_ret = tcp_send(sock, (const uint8_t *)gga_item.data, gga_item.len);
+      if (send_ret > 0) {
+        LOG_INFO("Sent GGA to NTRIP (%d bytes): %.*s",
+                 gga_item.len, gga_item.len, gga_item.data);
+        sent_count++;
+      } else {
+        LOG_WARN("Failed to send GGA to NTRIP: %d", send_ret);
+        // 전송 실패 시 루프 중단 (다음 recv 후 재시도)
+        break;
+      }
+    }
+
+    // 남은 GGA가 있으면 로깅
+    if (sent_count >= NTRIP_GGA_SEND_BATCH && g_ntrip_connected) {
+      UBaseType_t remaining = uxQueueMessagesWaiting(g_gga_send_queue);
+      if (remaining > 0) {
+        LOG_DEBUG("GGA batch sent (%d), %d remaining in queue", sent_count, remaining);
+      }
+    }
+
     // 데이터 수신 (블로킹)
     ret = tcp_recv(sock, recv_buf, sizeof(recv_buf), 0);
 
@@ -186,8 +245,12 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
 
       // 연속 타임아웃 최대 횟수 초과 시 재연결
       if (timeout_count >= NTRIP_MAX_TIMEOUT_COUNT) {
-        LOG_WARN("연속 타임아웃 발생 또는 소켓 끊김, 재연결 시도...");
+        // 재연결 시작 전 큐 상태 확인
+        UBaseType_t queued_gga = uxQueueMessagesWaiting(g_gga_send_queue);
+        LOG_WARN("연속 타임아웃 발생 또는 소켓 끊김, 재연결 시도... (큐에 GGA %d개 대기중)", queued_gga);
         led_set_color(1, LED_COLOR_YELLOW);
+        g_ntrip_connected = false;
+
         // 기존 연결 닫기
         tcp_close_force(sock);
         vTaskDelay(pdMS_TO_TICKS(NTRIP_RECONNECT_DELAY_MS));
@@ -202,7 +265,23 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
         } else {
           LOG_INFO("재연결 성공");
           led_set_color(1, LED_COLOR_GREEN);
+          g_ntrip_connected = true;
           timeout_count = 0; // 타임아웃 카운터 리셋
+
+          // 재연결 중 쌓인 오래된 GGA 버리기 (최신 1개만 유지)
+          UBaseType_t queued_gga = uxQueueMessagesWaiting(g_gga_send_queue);
+          if (queued_gga > 1) {
+            LOG_INFO("재연결 완료 - 오래된 GGA %d개 드롭, 최신 1개만 전송", queued_gga - 1);
+
+            // 오래된 데이터 모두 제거
+            ntrip_gga_queue_item_t old_item;
+            while (queued_gga > 1) {
+              xQueueReceive(g_gga_send_queue, &old_item, 0);
+              queued_gga--;
+            }
+          } else if (queued_gga == 1) {
+            LOG_INFO("재연결 완료 - 최신 GGA 1개 전송 예정");
+          }
         }
       }
     } else {
@@ -216,6 +295,8 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
       // 에러 발생 시 재연결 시도
       LOG_WARN("에러 발생, 재연결 시도...");
       led_set_color(1, LED_COLOR_YELLOW);
+      g_ntrip_connected = false;
+
       tcp_close_force(sock);
       vTaskDelay(pdMS_TO_TICKS(NTRIP_RECONNECT_DELAY_MS));
 
@@ -225,8 +306,24 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
         vTaskDelay(pdMS_TO_TICKS(NTRIP_RECONNECT_DELAY_MS * 2));
       } else {
         LOG_INFO("재연결 성공");
+        g_ntrip_connected = true;
         timeout_count = 0;
         led_set_color(1, LED_COLOR_GREEN);
+
+        // 재연결 중 쌓인 오래된 GGA 버리기 (최신 1개만 유지)
+        UBaseType_t queued_gga = uxQueueMessagesWaiting(g_gga_send_queue);
+        if (queued_gga > 1) {
+          LOG_INFO("재연결 완료 - 오래된 GGA %d개 드롭, 최신 1개만 전송", queued_gga - 1);
+
+          // 오래된 데이터 모두 제거
+          ntrip_gga_queue_item_t old_item;
+          while (queued_gga > 1) {
+            xQueueReceive(g_gga_send_queue, &old_item, 0);
+            queued_gga--;
+          }
+        } else if (queued_gga == 1) {
+          LOG_INFO("재연결 완료 - 최신 GGA 1개 전송 예정");
+        }
       }
     }
   }
@@ -242,4 +339,37 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
 void ntrip_task_create(gsm_t *gsm) {
   xTaskCreate(ntrip_tcp_recv_task, "ntrip_recv", 2048, gsm,
               tskIDLE_PRIORITY + 3, NULL);
+}
+
+int ntrip_send_gga_data(const char *data, uint8_t len) {
+  if (!data || len == 0 || len >= NTRIP_GGA_MAX_LEN) {
+    LOG_ERR("Invalid GGA data (len=%d)", len);
+    return -1;
+  }
+
+  if (!g_gga_send_queue) {
+    LOG_WARN("GGA send queue not initialized");
+    return -2;
+  }
+
+  // 큐에 넣을 아이템 생성
+  ntrip_gga_queue_item_t item;
+  memcpy(item.data, data, len);
+  item.data[len] = '\0';
+  item.len = len;
+
+  // 큐에 넣기 (블로킹 안 함, 큐가 가득 차면 실패)
+  if (xQueueSend(g_gga_send_queue, &item, 0) != pdTRUE) {
+    // 큐가 가득 참 - 오래된 데이터 하나 제거하고 다시 시도
+    ntrip_gga_queue_item_t old_item;
+    xQueueReceive(g_gga_send_queue, &old_item, 0);
+
+    if (xQueueSend(g_gga_send_queue, &item, 0) != pdTRUE) {
+      LOG_WARN("Failed to queue GGA data (queue full)");
+      return -3;
+    }
+    LOG_DEBUG("GGA queue was full, dropped oldest item");
+  }
+
+  return len;
 }

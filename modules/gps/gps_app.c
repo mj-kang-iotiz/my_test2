@@ -4,6 +4,7 @@
 #include "gps_port.h"
 #include "gps_unicore.h"
 #include "led.h"
+#include "ntrip_app.h"
 #include <string.h>
 
 #define GPS_UART_MAX_RECV_SIZE 2048
@@ -382,6 +383,13 @@ void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
       if (gps->nmea_data.gga.fix >= GPS_FIX_GPS) {
         _add_gga_avg_data(inst, gps->nmea_data.gga.lat, gps->nmea_data.gga.lon,
                           gps->nmea_data.gga.alt);
+      }
+
+      // GGA raw 데이터를 NTRIP 서버로 전송
+      char gga_buf[100];
+      uint8_t gga_len = 0;
+      if (get_gga(gps, gga_buf, &gga_len)) {
+        ntrip_send_gga_data(gga_buf, gga_len);
       }
     }
     break;
