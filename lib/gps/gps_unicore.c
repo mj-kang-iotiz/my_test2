@@ -71,10 +71,10 @@ static void store_unicore_bin_data(gps_t *gps) {
 
 uint8_t gps_parse_unicore_bin(gps_t *gps) {
   if (gps->pos == 6) {
-    memcpy(&gps->unicore_bin.header.message_id, &gps->payload[4], 2);
+    gps->unicore_bin.header.message_id = (uint16_t)gps->payload[4] | ((uint16_t)gps->payload[5] << 8);
     gps->state = GPS_PARSE_STATE_UNICORE_MESSAGE_ID;
   } else if (gps->pos == 8) {
-    memcpy(&gps->unicore_bin.header.message_len, &gps->payload[6], 2);
+    gps->unicore_bin.header.message_len = (uint16_t)gps->payload[6] | ((uint16_t)gps->payload[7] << 8);
     gps->state = GPS_PARSE_STATE_UNICORE_MESSAGE_LEN;
   } 
    else {
@@ -98,14 +98,18 @@ uint8_t gps_parse_unicore_bin(gps_t *gps) {
         gps->protocol = GPS_PROTOCOL_NONE;
         gps->state = GPS_PARSE_STATE_NONE;
 
+        /* clear payload and reset position */
         memset(gps->payload, 0, sizeof(gps->payload));
+        gps->pos = 0;
 
         return 1;
       } else {
         gps->protocol = GPS_PROTOCOL_NONE;
         gps->state = GPS_PARSE_STATE_NONE;
 
+        /* clear payload and reset position on failure as well */
         memset(gps->payload, 0, sizeof(gps->payload));
+        gps->pos = 0;
         return 0;
       }
     }

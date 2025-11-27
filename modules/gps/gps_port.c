@@ -259,14 +259,13 @@ int gps_port_init_instance(gps_t *gps_handle, gps_id_t id, gps_type_t type) {
     LOG_INFO("GPS[%d] USART2 할당 및 초기화 완료", id);
 
   } else if (config->board == BOARD_TYPE_ROVER_UM982) {
-    //    // Rover Unicore: UART4
-    //    uart4_gps_type = type;
-    //    uart4_gps_id = id;
-    //    gps_handle->ops = &gps_uart4_ops;
-    //    if (gps_handle->ops->init) {
-    //      gps_handle->ops->init();
-    //    }
-    //    LOG_INFO("GPS[%d] UART4 할당 및 초기화 완료", id);
+    uart2_gps_type = type;
+    uart2_gps_id = id;
+    gps_handle->ops = &gps_rtk_uart2_ops;
+    if (gps_handle->ops->init) {
+      gps_handle->ops->init();
+    }
+    LOG_INFO("GPS[%d] USART2 할당 및 초기화 완료", id);
 
   } else if (config->board == BOARD_TYPE_ROVER_F9P) {
     // Rover Ublox: 첫 번째는 USART2, 두 번째는 UART4

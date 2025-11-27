@@ -165,7 +165,7 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
         gps->state = GPS_PARSE_STATE_NMEA_START;
       } 
       /* UBX binary */
-      else if (*d == 0xB5) {
+      else if (*d == 0xB5 && gps->state == GPS_PARSE_STATE_NONE) {
         gps->state = GPS_PARSE_STATE_UBX_SYNC_1;
       } 
       else if (*d == 0x62 && gps->state == GPS_PARSE_STATE_UBX_SYNC_1) {
@@ -177,7 +177,7 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
         gps->state = GPS_PARSE_STATE_UBX_SYNC_2;
       } 
       /* UNICORE binary */
-      else if(*d == 0xAA) {
+      else if(*d == 0xAA && gps->state == GPS_PARSE_STATE_NONE) {
         gps->state = GPS_PARSE_STATE_UNICORE_SYNC1;
         memset(gps->payload, 0, sizeof(gps->payload));
         gps->pos = 0;
@@ -203,7 +203,10 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
 
       if (*d == ',') {
             if (gps->nmea.term_num == 0 && strcmp(gps->nmea.term_str, "command") == 0) {
-              memcpy(&gps->unicore, &gps->nmea, sizeof(gps->nmea));
+
+            	memset(&gps->unicore, 0, sizeof(gps->unicore));
+            	gps->unicore.crc = gps->nmea.crc;
+            	memset(&gps->nmea, 0, sizeof(gps->nmea));
               gps->protocol = GPS_PROTOCOL_UNICORE;
               gps->state = GPS_PARSE_STATE_UNICORE_START;
               gps->unicore.msg_type = GPS_UNICORE_MSG_COMMAND;
@@ -257,8 +260,17 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
     {
       if (*d == ',') {
         gps_parse_unicore_term(gps);
-        add_unicore_chksum(gps, *d);
+        
+        if (!gps->unicore.colon) {
+          add_unicore_chksum(gps, *d);
+        }
         term_next_unicore(gps);
+      }
+      else if (*d == ':') {
+        // ':' 이후는 값이므로 CRC에 포함하지 않음
+        gps->unicore.colon = 1;
+        add_unicore_chksum(gps, *d);  // ':' 자체는 CRC에 포함
+        term_add_unicore(gps, *d);
       }
       else if (*d == '*') {
         gps_parse_unicore_term(gps);
@@ -266,7 +278,7 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
         term_next_unicore(gps);
         gps->state = GPS_PARSE_STATE_UNICORE_CHKSUM;
       } else if (*d == '\r') {
-        if (check_nmea_chksum(gps)) {
+        if (check_unicore_chksum(gps)) {
           gps_msg_t msg;
           msg.unicore.response = gps->unicore.response;
 
@@ -275,11 +287,12 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
           }
         }
 
+        memset(&gps->unicore, 0, sizeof(gps->unicore));
         memset(gps->payload, 0, sizeof(gps->payload));
         gps->protocol = GPS_PROTOCOL_NONE;
         gps->state = GPS_PARSE_STATE_NONE;
       } else {
-        if (!gps->unicore.star) {
+        if (!gps->unicore.star && !gps->unicore.colon) {
           add_unicore_chksum(gps, *d);
         }
 

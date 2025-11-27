@@ -31,6 +31,7 @@ typedef struct {
   gps_unicore_msg_t msg_type;
   uint8_t crc;
   uint8_t star;
+  uint8_t colon; ///< '$이후부터 : 받을때 까지만 crc 검사 해야함! response: OK에서 스페이스바 부터 OK까지 포함하면 안됨
   gps_unicore_resp_t response;
 } gps_unicore_parser_t;
 

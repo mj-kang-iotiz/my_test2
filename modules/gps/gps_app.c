@@ -181,7 +181,8 @@ void _add_hp_avg_data(gps_instance_t *inst) {
 #define UM982_BASE_CMD_COUNT (sizeof(um982_base_cmds) / sizeof(um982_base_cmds[0]))
 
 static const char *um982_base_cmds[] = {
-    "mode base time 60\r\n",
+    "MODE BASE TIME 60\r\n",
+	"unmask BDS\r\n",
     "rtcm1033 com1 10\r\n",
     "rtcm1006 com1 10\r\n",
     "rtcm1074 com1 1\r\n",
@@ -191,6 +192,15 @@ static const char *um982_base_cmds[] = {
     "gpgga com1 1\r\n",
     "BESTNAVB 1\r\n",
 };
+
+static const char *um982_rover_cmds[] = {
+  "MODE ROVER\r\n",
+  "unmask BDS\r\n",
+  "GNGGA 1\r\n",
+  "BESTNAVB 1\r\n",
+};
+
+#define UM982_ROVER_CMD_COUNT (sizeof(um982_rover_cmds) / sizeof(um982_rover_cmds[0]))
 
 typedef void (*gps_init_callback_t)(bool success, void *user_data);
 
@@ -203,13 +213,6 @@ typedef struct {
   gps_init_callback_t callback; // 완료 콜백
 } gps_init_context_t;
 
-//// ROVER UM982: 로버 모드
-//static const gps_init_cmd_t um982_rover_cmds[] = {
-//    {"CONFIG RESET\r\n"},
-//    {"MODE ROVER\r\n"},
-//    {"GNGGA 1\r\n"},
-//    {"SAVECONFIG\r\n"},
-//};
 
 static void overall_init_complete(bool success, void *user_data) {
   gps_id_t id = (gps_id_t)(uintptr_t)user_data;
@@ -309,6 +312,44 @@ bool gps_init_um982_base_async(gps_id_t id, gps_init_callback_t callback) {
   ctx->callback = callback;
 
   LOG_INFO("GPS[%d] Starting UM982 base init sequence (%d commands)",
+           id, ctx->cmd_count);
+
+  // 첫 번째 명령어 전송
+  if (!gps_send_command_async(id, ctx->cmd_list[0], GPS_INIT_TIMEOUT_MS,
+                               gps_init_command_callback, ctx)) {
+    LOG_ERR("GPS[%d] failed to start init sequence", id);
+    vPortFree(ctx);
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * @brief GPS UM982 Rover 모드 초기화 (비동기)
+ */
+bool gps_init_um982_rover_async(gps_id_t id, gps_init_callback_t callback) {
+  if (id >= GPS_ID_MAX || !gps_instances[id].enabled) {
+    LOG_ERR("GPS[%d] invalid or disabled", id);
+    return false;
+  }
+
+  // 초기화 컨텍스트 생성 (동적 할당)
+  gps_init_context_t *ctx = (gps_init_context_t *)pvPortMalloc(sizeof(gps_init_context_t));
+  if (!ctx) {
+    LOG_ERR("GPS[%d] failed to allocate init context", id);
+    return false;
+  }
+
+  // 컨텍스트 초기화
+  ctx->gps_id = id;
+  ctx->current_step = 0;
+  ctx->retry_count = 0;
+  ctx->cmd_list = um982_rover_cmds;
+  ctx->cmd_count = UM982_ROVER_CMD_COUNT;
+  ctx->callback = callback;
+
+  LOG_INFO("GPS[%d] Starting UM982 rover init sequence (%d commands)",
            id, ctx->cmd_count);
 
   // 첫 번째 명령어 전송
@@ -488,7 +529,11 @@ static void gps_process_task(void *pvParameter) {
   }
 
   vTaskDelay(pdMS_TO_TICKS(2000));
+#if defined(BOARD_TYPE_BASE_UNICORE)
   gps_init_um982_base_async(id, overall_init_complete);
+#elif defined(BOARD_TYPE_ROVER_UNICORE)
+  gps_init_um982_rover_async(id, overall_init_complete);
+#endif
 
   while (1) {
     xQueueReceive(inst->queue, &dummy,
