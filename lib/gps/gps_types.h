@@ -88,6 +88,9 @@ typedef union {
   struct {
     uint16_t msg;
   } unicore_bin;
+  struct {
+    uint8_t response; // gps_unicore_resp_t
+  } unicore;
 } gps_msg_t;
 
 #endif

@@ -40,6 +40,16 @@ static inline void add_nmea_chksum(gps_t *gps, char ch) {
 }
 
 /**
+ * @brief UNICORE ASCII 프로토콜 체크섬 추가
+ *
+ * @param[out] gps
+ * @param[in] ch
+ */
+static inline void add_unicore_chksum(gps_t *gps, char ch) {
+  gps->unicore.crc ^= (uint8_t)ch;
+}
+
+/**
  * @brief NMEA 프로토콜 체크섬 확인
  *
  * @param[in] gps
@@ -53,6 +63,26 @@ static inline uint8_t check_nmea_chksum(gps_t *gps) {
                   ((PARSER_CHAR_HEX_TO_NUM(gps->nmea.term_str[1])) & 0x0FU));
 
   if (gps->nmea.crc != crc) {
+    return 0;
+  }
+
+  return 1;
+}
+
+/**
+ * @brief UNICORE ASCII 프로토콜 체크섬 확인
+ *
+ * @param[in] gps
+ * @return uint8_t 1: success 0: fail
+ */
+static inline uint8_t check_unicore_chksum(gps_t *gps) {
+  uint8_t crc = 0;
+
+  crc = (uint8_t)((((PARSER_CHAR_HEX_TO_NUM(gps->unicore.term_str[0])) & 0x0FU)
+                   << 0x04U) |
+                  ((PARSER_CHAR_HEX_TO_NUM(gps->unicore.term_str[1])) & 0x0FU));
+
+  if (gps->unicore.crc != crc) {
     return 0;
   }
 
@@ -94,6 +124,30 @@ static inline void term_next(gps_t *gps) {
   gps->nmea.term_str[0] = 0;
   gps->nmea.term_pos = 0;
   gps->nmea.term_num++;
+}
+
+/**
+ * @brief UNICORE ASCII 프로토콜 , 사이에 있는 문자 추가
+ *
+ * @param[inout] gps
+ * @param[in] ch
+ */
+static inline void term_add_unicore(gps_t *gps, char ch) {
+  if (gps->unicore.term_pos < GPS_UNICORE_TERM_SIZE - 1) {
+    gps->unicore.term_str[gps->unicore.term_pos] = ch;
+    gps->unicore.term_str[++gps->unicore.term_pos] = 0;
+  }
+}
+
+/**
+ * @brief UNICORE ASCII 프로토콜 , 파싱후 초기화
+ *
+ * @param[out] gps
+ */
+static inline void term_next_unicore(gps_t *gps) {
+  gps->unicore.term_str[0] = 0;
+  gps->unicore.term_pos = 0;
+  gps->unicore.term_num++;
 }
 
 /**
@@ -167,9 +221,19 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
       }
 
       if (*d == ',') {
-          gps_parse_nmea_term(gps);
-          add_nmea_chksum(gps, *d);
-          term_next(gps);
+          // 첫 번째 term 파싱 시 $command면 UNICORE로 전환
+          if (gps->nmea.term_num == 0 && strcmp(gps->nmea.term_str, "$command") == 0) {
+            memcpy(&gps->unicore, &gps->nmea, sizeof(gps->nmea));
+            gps->protocol = GPS_PROTOCOL_UNICORE;
+            gps->state = GPS_PARSE_STATE_UNICORE_START;
+            gps->unicore.msg_type = GPS_UNICORE_MSG_COMMAND;
+            add_unicore_chksum(gps, *d);
+            term_next_unicore(gps);
+          } else {
+            gps_parse_nmea_term(gps);
+            add_nmea_chksum(gps, *d);
+            term_next(gps);
+          }
       }
       else if (*d == '*') {
         gps_parse_nmea_term(gps);
@@ -220,10 +284,39 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
     } else if (gps->protocol == GPS_PROTOCOL_UBX) {
       add_payload(gps, *d);
       gps_parse_ubx(gps);
-    } 
+    }
     else if(gps->protocol == GPS_PROTOCOL_UNICORE)
     {
+      // UNICORE ASCII는 NMEA와 동일한 형식
+      if (*d == ',') {
+        gps_parse_unicore_term(gps);
+        add_unicore_chksum(gps, *d);
+        term_next_unicore(gps);
+      }
+      else if (*d == '*') {
+        gps_parse_unicore_term(gps);
+        gps->unicore.star = 1;
+        term_next_unicore(gps);
+        gps->state = GPS_PARSE_STATE_UNICORE_CHKSUM;
+      } else if (*d == '\r') {
+        if (check_unicore_chksum(gps)) {
+          gps_msg_t msg;
+          msg.unicore.response = gps->unicore.response;
 
+          if (gps->handler) {
+            gps->handler(gps, GPS_EVENT_DATA_PARSED, gps->protocol, msg);
+          }
+        }
+
+        memset(gps->payload, 0, sizeof(gps->payload));
+        gps->protocol = GPS_PROTOCOL_NONE;
+        gps->state = GPS_PARSE_STATE_NONE;
+      } else {
+        if (!gps->unicore.star) {
+          add_unicore_chksum(gps, *d);
+        }
+        term_add_unicore(gps, *d);
+      }
     }
     else if( gps->protocol == GPS_PROTOCOL_UNICORE_BIN)
     {

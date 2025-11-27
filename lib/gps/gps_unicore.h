@@ -13,6 +13,16 @@
 
 
 /**
+ * @brief Unicore ASCII 응답 타입
+ */
+typedef enum {
+  GPS_UNICORE_RESP_NONE = 0,
+  GPS_UNICORE_RESP_OK = 1,
+  GPS_UNICORE_RESP_ERROR = 2,
+  GPS_UNICORE_RESP_UNKNOWN = 3
+} gps_unicore_resp_t;
+
+/**
  * @brief Unicore 파서 상태
  */
 typedef struct {
@@ -23,6 +33,7 @@ typedef struct {
   gps_unicore_msg_t msg_type;
   uint8_t crc;
   uint8_t star;
+  gps_unicore_resp_t response; // ASCII 명령어 응답
 } gps_unicore_parser_t;
 
 typedef enum {
@@ -89,5 +100,6 @@ typedef struct gps_s gps_t;
 
 uint8_t gps_parse_unicore_term(gps_t *gps);
 void gps_parse_unicore_bin(gps_t *gps);
+gps_unicore_resp_t gps_get_unicore_response(gps_t *gps);
 
 #endif
