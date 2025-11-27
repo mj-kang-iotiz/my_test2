@@ -209,11 +209,12 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
 
       if (*d == ',') {
             if (gps->nmea.term_num == 0 && strcmp(gps->nmea.term_str, "command") == 0) {
-              memcpy(&gps->unicore, &gps->nmea, sizeof(gps->nmea));
+              // UNICORE로 전환: CRC는 "command," 이후부터 새로 시작
+              memset(&gps->unicore, 0, sizeof(gps->unicore));
               gps->protocol = GPS_PROTOCOL_UNICORE;
               gps->state = GPS_PARSE_STATE_UNICORE_START;
               gps->unicore.msg_type = GPS_UNICORE_MSG_COMMAND;
-              add_unicore_chksum(gps, *d);
+              // ','는 CRC에 포함하지 않음 (헤더 구분자)
               term_next_unicore(gps);
             } else {
               gps_parse_nmea_term(gps);
