@@ -100,8 +100,10 @@ int tcp_send(tcp_socket_t *sock, const uint8_t *data, size_t len) {
     return -1;
   }
 
-  // ★ 동기식 전송
-  int ret = gsm_tcp_send(sock->gsm, sock->connect_id, data, len, NULL);
+  // ★ 비동기 전송 (콜백 사용, 즉시 리턴)
+  // pbuf에 데이터 복사 후 즉시 리턴, AT 명령은 백그라운드 처리
+  int ret = gsm_tcp_send(sock->gsm, sock->connect_id, data, len,
+                         _internal_send_callback);
 
   if (ret == 0) {
     return (int)len; // 전송 성공
@@ -255,6 +257,17 @@ size_t tcp_available(tcp_socket_t *sock) {
 //=============================================================================
 // 내부 콜백 (gsm_tcp_open에서 호출됨)
 //=============================================================================
+
+/**
+ * @brief 내부 전송 완료 콜백 (비동기 전송용)
+ *
+ * gsm_tcp_send()가 비동기로 완료되면 호출됨
+ */
+static void _internal_send_callback(at_resp_t *resp) {
+  // 비동기 전송이므로 별도 처리 없음
+  // 필요 시 로깅이나 통계 업데이트 가능
+  (void)resp; // 사용하지 않음
+}
 
 /**
  * @brief 내부 수신 콜백
