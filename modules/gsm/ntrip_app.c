@@ -35,6 +35,10 @@ static const char NTRIP_HTTP_REQUEST[] =
 
 uint8_t recv_buf[1500];
 
+// NTRIP TCP 소켓 (GGA 전송용)
+static tcp_socket_t *g_ntrip_socket = NULL;
+static bool g_ntrip_connected = false;
+
 static int ntrip_connect_to_server(tcp_socket_t *sock) {
   int ret;
   int retry_count = 0;
@@ -114,13 +118,18 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
   }
   LOG_INFO("TCP 소켓 생성 완료");
 
+  // 전역 소켓 저장
+  g_ntrip_socket = sock;
+
   if (ntrip_connect_to_server(sock) != 0) {
     LOG_ERR("초기 연결 실패");
+    g_ntrip_connected = false;
     tcp_socket_destroy(sock);
     vTaskDelete(NULL);
     return;
   }
 
+  g_ntrip_connected = true;
   gsm_socket_monitor_start();
 
   // HTTP 요청 전송 (한 번만)
@@ -188,6 +197,8 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
       if (timeout_count >= NTRIP_MAX_TIMEOUT_COUNT) {
         LOG_WARN("연속 타임아웃 발생 또는 소켓 끊김, 재연결 시도...");
         led_set_color(1, LED_COLOR_YELLOW);
+        g_ntrip_connected = false;
+
         // 기존 연결 닫기
         tcp_close_force(sock);
         vTaskDelay(pdMS_TO_TICKS(NTRIP_RECONNECT_DELAY_MS));
@@ -202,6 +213,7 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
         } else {
           LOG_INFO("재연결 성공");
           led_set_color(1, LED_COLOR_GREEN);
+          g_ntrip_connected = true;
           timeout_count = 0; // 타임아웃 카운터 리셋
         }
       }
@@ -216,6 +228,8 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
       // 에러 발생 시 재연결 시도
       LOG_WARN("에러 발생, 재연결 시도...");
       led_set_color(1, LED_COLOR_YELLOW);
+      g_ntrip_connected = false;
+
       tcp_close_force(sock);
       vTaskDelay(pdMS_TO_TICKS(NTRIP_RECONNECT_DELAY_MS));
 
@@ -225,6 +239,7 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
         vTaskDelay(pdMS_TO_TICKS(NTRIP_RECONNECT_DELAY_MS * 2));
       } else {
         LOG_INFO("재연결 성공");
+        g_ntrip_connected = true;
         timeout_count = 0;
         led_set_color(1, LED_COLOR_GREEN);
       }
@@ -242,4 +257,25 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
 void ntrip_task_create(gsm_t *gsm) {
   xTaskCreate(ntrip_tcp_recv_task, "ntrip_recv", 2048, gsm,
               tskIDLE_PRIORITY + 3, NULL);
+}
+
+int ntrip_send_gga_data(const char *data, uint8_t len) {
+  if (!g_ntrip_socket || !g_ntrip_connected) {
+    LOG_WARN("NTRIP not connected, cannot send GGA");
+    return -1;
+  }
+
+  if (!data || len == 0) {
+    LOG_ERR("Invalid GGA data");
+    return -2;
+  }
+
+  int ret = tcp_send(g_ntrip_socket, (const uint8_t *)data, len);
+  if (ret < 0) {
+    LOG_ERR("Failed to send GGA data: %d", ret);
+    return ret;
+  }
+
+  LOG_INFO("Sent GGA data (%d bytes): %.*s", len, len, data);
+  return ret;
 }
