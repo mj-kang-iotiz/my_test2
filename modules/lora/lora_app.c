@@ -18,6 +18,8 @@
 #define LORA_AT_CMD_TIMEOUT_MS 2000
 #define LORA_INIT_MAX_RETRY 3
 #define LORA_INIT_TIMEOUT_MS 2000
+#define LORA_RESTART_TIMEOUT_MS 5000  // restart 명령은 더 긴 타임아웃 필요
+#define LORA_RECV_BUF_SIZE 1024  // lora_port.c의 lora_recv_buf 크기와 동일
 
 static void lora_process_task(void *pvParameter);
 static void lora_tx_task(void *pvParameter);
@@ -26,8 +28,7 @@ static void lora_tx_task(void *pvParameter);
  * @brief LoRa P2P BASE 모드 초기화 명령어
  */
 static const char *lora_p2p_base_cmds[] = {
-  // "at+set_config=device:restart\r\n",  // 임시로 주석 처리 (디버깅용)
-  "at+help\r\n",  // 테스트용
+  "at+set_config=device:restart\r\n",
   "at+set_config=lora:work_mode:0\r\n",                 // P2P 모드
   "at+set_config=lorap2p:920900000:7:0:1:8:14\r\n",     // 920.9MHz, SF7, BW125kHz, CR4/5, Preamble8, 14dBm
   "at+set_config=lorap2p:transfer_mode:2\r\n",          // Transfer mode 2 (BASE)
@@ -115,9 +116,12 @@ static void lora_init_command_callback(bool success, void *user_data) {
       return;
     }
 
-    // 다음 명령어 전송
+    // 다음 명령어 전송 (restart 명령은 더 긴 타임아웃 사용)
+    uint32_t timeout = (strstr(ctx->cmd_list[ctx->current_step], "restart") != NULL)
+                           ? LORA_RESTART_TIMEOUT_MS
+                           : LORA_INIT_TIMEOUT_MS;
     lora_send_command_async(ctx->cmd_list[ctx->current_step],
-                            LORA_INIT_TIMEOUT_MS, lora_init_command_callback, ctx);
+                            timeout, lora_init_command_callback, ctx);
   } else {
     // 명령어 실패
     ctx->retry_count++;
@@ -129,9 +133,12 @@ static void lora_init_command_callback(bool success, void *user_data) {
                ctx->retry_count, LORA_INIT_MAX_RETRY,
                ctx->cmd_list[ctx->current_step]);
 
-      // 같은 명령어 재전송
+      // 같은 명령어 재전송 (restart 명령은 더 긴 타임아웃 사용)
+      uint32_t timeout = (strstr(ctx->cmd_list[ctx->current_step], "restart") != NULL)
+                             ? LORA_RESTART_TIMEOUT_MS
+                             : LORA_INIT_TIMEOUT_MS;
       lora_send_command_async(ctx->cmd_list[ctx->current_step],
-                              LORA_INIT_TIMEOUT_MS, lora_init_command_callback, ctx);
+                              timeout, lora_init_command_callback, ctx);
     } else {
       // 최대 재시도 초과
       LOG_ERR("LoRa init failed at step %d/%d after %d retries: %s",
@@ -167,8 +174,11 @@ static bool lora_init_p2p_base_async(lora_init_callback_t callback) {
 
   LOG_INFO("Starting LoRa P2P BASE init sequence (%d commands)", ctx->cmd_count);
 
-  // 첫 번째 명령어 전송
-  if (!lora_send_command_async(ctx->cmd_list[0], LORA_INIT_TIMEOUT_MS,
+  // 첫 번째 명령어 전송 (restart 명령은 더 긴 타임아웃 사용)
+  uint32_t timeout = (strstr(ctx->cmd_list[0], "restart") != NULL)
+                         ? LORA_RESTART_TIMEOUT_MS
+                         : LORA_INIT_TIMEOUT_MS;
+  if (!lora_send_command_async(ctx->cmd_list[0], timeout,
                                 lora_init_command_callback, ctx)) {
     LOG_ERR("Failed to start LoRa init sequence");
     vPortFree(ctx);
@@ -198,8 +208,11 @@ static bool lora_init_p2p_rover_async(lora_init_callback_t callback) {
 
   LOG_INFO("Starting LoRa P2P ROVER init sequence (%d commands)", ctx->cmd_count);
 
-  // 첫 번째 명령어 전송
-  if (!lora_send_command_async(ctx->cmd_list[0], LORA_INIT_TIMEOUT_MS,
+  // 첫 번째 명령어 전송 (restart 명령은 더 긴 타임아웃 사용)
+  uint32_t timeout = (strstr(ctx->cmd_list[0], "restart") != NULL)
+                         ? LORA_RESTART_TIMEOUT_MS
+                         : LORA_INIT_TIMEOUT_MS;
+  if (!lora_send_command_async(ctx->cmd_list[0], timeout,
                                 lora_init_command_callback, ctx)) {
     LOG_ERR("Failed to start LoRa init sequence");
     vPortFree(ctx);
@@ -468,10 +481,10 @@ static void lora_process_task(void *pvParameter) {
         old_pos = pos;
       } else {
         // Circular buffer wrap-around
-        len = sizeof(lora_recv) - old_pos + pos;
+        len = LORA_RECV_BUF_SIZE - old_pos + pos;
 
         char temp_buf[1024];
-        size_t first_part = sizeof(lora_recv) - old_pos;
+        size_t first_part = LORA_RECV_BUF_SIZE - old_pos;
         memcpy(temp_buf, &lora_recv[old_pos], first_part);
         memcpy(&temp_buf[first_part], &lora_recv[0], pos);
         temp_buf[len] = '\0';
