@@ -30,6 +30,7 @@
 #include "gps.h"
 #include "gps_app.h"
 #include "gsm_app.h"
+#include "lora_app.h"
 #include "led.h"
 #include "queue.h"
 #include "semphr.h"
@@ -95,9 +96,9 @@ void initThread(void *pvParameter) {
   led_init();
   led_set_color(3, LED_COLOR_RED);
   led_set_state(3, true);
-  gps_init_all();
-  gsm_task_create(NULL);
-
+//  gps_init_all();
+//  gsm_task_create(NULL);
+  lora_instance_init();
   vTaskDelete(NULL);
 }
 
@@ -136,7 +137,7 @@ int main(void) {
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  MX_USART6_UART_Init();
+//  MX_USART6_UART_Init();
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
   xTaskCreate(initThread, "init", 2048, NULL, tskIDLE_PRIORITY + 1, NULL);

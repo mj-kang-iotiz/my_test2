@@ -103,7 +103,6 @@ void gsm_uart_init(void) {
   USART_InitStruct.OverSampling = LL_USART_OVERSAMPLING_16;
   LL_USART_Init(USART1, &USART_InitStruct);
   LL_USART_ConfigAsyncMode(USART1);
-  LL_USART_Enable(USART1);
   /* USER CODE BEGIN USART1_Init 2 */
 
   /* USER CODE END USART1_Init 2 */
@@ -116,8 +115,6 @@ void gsm_port_comm_start(void) {
                           (uint32_t)&gsm_mem);
   LL_DMA_SetDataLength(GSM_PORT_UART_DMA, GSM_PORT_UART_DMA_STREAM,
                        sizeof(gsm_mem));
-  LL_DMA_EnableIT_HT(GSM_PORT_UART_DMA, GSM_PORT_UART_DMA_STREAM);
-  LL_DMA_EnableIT_TC(GSM_PORT_UART_DMA, GSM_PORT_UART_DMA_STREAM);
   LL_DMA_EnableIT_TE(GSM_PORT_UART_DMA, GSM_PORT_UART_DMA_STREAM);
   LL_DMA_EnableIT_FE(GSM_PORT_UART_DMA, GSM_PORT_UART_DMA_STREAM);
   LL_DMA_EnableIT_DME(GSM_PORT_UART_DMA, GSM_PORT_UART_DMA_STREAM);
@@ -235,15 +232,6 @@ void USART1_IRQHandler(void) {
  */
 void DMA2_Stream2_IRQHandler(void) {
   /* USER CODE BEGIN DMA2_Stream2_IRQn 0 */
-  LL_DMA_ClearFlag_TC2(GSM_PORT_UART_DMA);
-  LL_DMA_ClearFlag_HT2(GSM_PORT_UART_DMA);
-
-  if (gsm_queue != NULL) {
-    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    uint8_t dummy = 0;
-    xQueueSendFromISR(gsm_queue, &dummy, &xHigherPriorityTaskWoken);
-    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-  }
   /* USER CODE END DMA2_Stream2_IRQn 0 */
   /* USER CODE BEGIN DMA2_Stream2_IRQn 1 */
 

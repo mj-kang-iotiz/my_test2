@@ -23,9 +23,7 @@ static QueueHandle_t lora_queues[1] = {NULL};
 
 static void lora_uart3_dma_init(void)
 {
-  /* Init with LL driver */
-  /* DMA controller clock enable */
-  LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
+  __HAL_RCC_DMA1_CLK_ENABLE();
 
   /* DMA interrupt init */
   /* DMA1_Stream1_IRQn interrupt configuration */
@@ -36,11 +34,6 @@ static void lora_uart3_dma_init(void)
 
 static void lora_uart3_init(void)
 {
-
-  /* USER CODE BEGIN USART3_Init 0 */
-
-  /* USER CODE END USART3_Init 0 */
-
   LL_USART_InitTypeDef USART_InitStruct = {0};
 
   LL_GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -83,7 +76,7 @@ static void lora_uart3_init(void)
   LL_DMA_DisableFifoMode(DMA1, LL_DMA_STREAM_1);
 
   /* USART3 interrupt Init */
-  NVIC_SetPriority(USART3_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),0, 0));
+  NVIC_SetPriority(USART3_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),5, 0));
   NVIC_EnableIRQ(USART3_IRQn);
 
   /* USER CODE BEGIN USART3_Init 1 */
@@ -98,33 +91,25 @@ static void lora_uart3_init(void)
   USART_InitStruct.OverSampling = LL_USART_OVERSAMPLING_16;
   LL_USART_Init(USART3, &USART_InitStruct);
   LL_USART_ConfigAsyncMode(USART3);
-  LL_USART_Enable(USART3);
-  /* USER CODE BEGIN USART3_Init 2 */
-
-  /* USER CODE END USART3_Init 2 */
-
 }
 
 int lora_uart3_comm_start(void) {
-  LL_DMA_SetPeriphAddress(LORA_PORT_UART_DMA, LORA_PORT_UART_DMA_STREAM,
-                          (uint32_t)&LORA_PORT_UART->DR);
-  LL_DMA_SetMemoryAddress(LORA_PORT_UART_DMA, LORA_PORT_UART_DMA_STREAM,
+  LL_DMA_SetPeriphAddress(DMA1, LL_DMA_STREAM_1, (uint32_t)&USART3->DR);
+  LL_DMA_SetMemoryAddress(DMA1, LL_DMA_STREAM_1,
                           (uint32_t)&lora_recv_buf[0]);
-  LL_DMA_SetDataLength(LORA_PORT_UART_DMA, LORA_PORT_UART_DMA_STREAM,
+  LL_DMA_SetDataLength(DMA1, LL_DMA_STREAM_1,
                        sizeof(lora_recv_buf[0]));
-  LL_DMA_EnableIT_HT(LORA_PORT_UART_DMA, LORA_PORT_UART_DMA_STREAM);
-  LL_DMA_EnableIT_TC(LORA_PORT_UART_DMA, LORA_PORT_UART_DMA_STREAM);
-  LL_DMA_EnableIT_TE(LORA_PORT_UART_DMA, LORA_PORT_UART_DMA_STREAM);
-  LL_DMA_EnableIT_FE(LORA_PORT_UART_DMA, LORA_PORT_UART_DMA_STREAM);
-  LL_DMA_EnableIT_DME(LORA_PORT_UART_DMA, LORA_PORT_UART_DMA_STREAM);
+  LL_DMA_EnableIT_TE(DMA1, LL_DMA_STREAM_1);
+  LL_DMA_EnableIT_FE(DMA1, LL_DMA_STREAM_1);
+  LL_DMA_EnableIT_DME(DMA1, LL_DMA_STREAM_1);
 
-  LL_USART_EnableIT_IDLE(LORA_PORT_UART);
-  LL_USART_EnableIT_PE(LORA_PORT_UART);
-  LL_USART_EnableIT_ERROR(LORA_PORT_UART);
-  LL_USART_EnableDMAReq_RX(LORA_PORT_UART);
+  LL_USART_EnableIT_IDLE(USART3);
+  LL_USART_EnableIT_PE(USART3);
+  LL_USART_EnableIT_ERROR(USART3);
+  LL_USART_EnableDMAReq_RX(USART3);
 
-  LL_DMA_EnableStream(LORA_PORT_UART_DMA, LORA_PORT_UART_DMA_STREAM);
-  LL_USART_Enable(LORA_PORT_UART);
+  LL_DMA_EnableStream(DMA1, LL_DMA_STREAM_1);
+  LL_USART_Enable(USART3);
 
   return 0;
 }
@@ -270,12 +255,13 @@ void lora_port_stop(lora_t *lora_handle) {
 }
 
 uint32_t lora_port_get_rx_pos() {
-  return sizeof(lora_recv_buf[0]) - LL_DMA_GetDataLength(LORA_PORT_UART_DMA, LORA_PORT_UART_DMA_STREAM);
+  uint32_t pos = sizeof(lora_recv_buf[0]) - LL_DMA_GetDataLength(LORA_PORT_UART_DMA, LORA_PORT_UART_DMA_STREAM);
+  return pos;
 }
 
 char *lora_port_get_recv_buf() 
 {
-  return &lora_recv_buf[0][0];
+  return lora_recv_buf[0];
 }
 
 void lora_port_set_queue(QueueHandle_t queue) {

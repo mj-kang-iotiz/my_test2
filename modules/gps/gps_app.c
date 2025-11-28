@@ -454,7 +454,9 @@ static void gps_tx_task(void *pvParameter) {
 
       // 명령어 전송
       if (inst->gps.ops && inst->gps.ops->send) {
+        xSemaphoreTake(inst->gps.mutex, pdMS_TO_TICKS(1000));
         inst->gps.ops->send(cmd_req.cmd, strlen(cmd_req.cmd));
+        xSemaphoreGive(inst->gps.mutex);
       } else {
         LOG_ERR("GPS[%d] send ops not available", id);
         inst->current_cmd_req = NULL;
