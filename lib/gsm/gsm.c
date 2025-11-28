@@ -375,20 +375,24 @@ void handle_urc_qiurc(gsm_t *gsm, const char *data, size_t len) {
     // 데이터 수신 알림
     uint8_t connect_id = parse_uint32(&p);
 
-    LOG_DEBUG("+QIURC: \"recv\",%d - 이벤트 큐에 추가", connect_id);
+    LOG_INFO("+QIURC: \"recv\",%d 수신 - 이벤트 큐에 추가 시도", connect_id);
 
     if (connect_id < GSM_TCP_MAX_SOCKETS) {
       // ✅ 이벤트 큐에 넣고 TCP 태스크가 처리하도록
       tcp_event_t evt = {.type = TCP_EVT_RECV_NOTIFY, .connect_id = connect_id};
 
+      // ★ 이벤트 큐 상태 확인 (디버깅용)
+      UBaseType_t queued = uxQueueMessagesWaiting(gsm->tcp.event_queue);
+      UBaseType_t available = uxQueueSpacesAvailable(gsm->tcp.event_queue);
+
       // 큐가 가득 찬 경우 10ms 대기 (이벤트 유실 방지)
       if (xQueueSend(gsm->tcp.event_queue, &evt, pdMS_TO_TICKS(10)) != pdTRUE) {
         // 큐 오버플로우: 이벤트 유실 (TCP 태스크가 처리 못하는 상황)
-        LOG_ERR("+QIURC: \"recv\" 이벤트 큐 오버플로우! (connect_id=%d)",
-                connect_id);
+        LOG_ERR("+QIURC: \"recv\" 이벤트 큐 오버플로우! (connect_id=%d, 큐: %d/%d)",
+                connect_id, queued, queued + available);
       } else {
-        LOG_DEBUG("+QIURC: \"recv\" 이벤트 큐 추가 성공 (connect_id=%d)",
-                  connect_id);
+        LOG_INFO("+QIURC: \"recv\" 이벤트 큐 추가 성공 (connect_id=%d, 큐: %d/%d, heap: %u bytes)",
+                  connect_id, queued + 1, queued + available + 1, xPortGetFreeHeapSize());
       }
 
       if (gsm->evt_handler.handler) {
@@ -1102,6 +1106,12 @@ static void tcp_read_complete_callback(gsm_t *gsm, gsm_cmd_t cmd, void *msg,
     if (cid < GSM_TCP_MAX_SOCKETS && m->qird.read_actual_length > 0) {
       gsm_tcp_socket_t *socket = &gsm->tcp.sockets[cid];
 
+      // ★ heap 메모리 확인 (디버깅용)
+      size_t free_heap = xPortGetFreeHeapSize();
+      if (free_heap < 5000) {
+        LOG_WARN("Heap 메모리 부족! (남은 heap: %u bytes)", free_heap);
+      }
+
       // pbuf 할당 및 데이터 복사
       tcp_pbuf_t *pbuf = tcp_pbuf_alloc(m->qird.read_actual_length);
       if (pbuf) {
@@ -1121,6 +1131,10 @@ static void tcp_read_complete_callback(gsm_t *gsm, gsm_cmd_t cmd, void *msg,
           on_recv(cid);
         }
         return;
+      } else {
+        // ★ pbuf 할당 실패 (메모리 부족!)
+        LOG_ERR("pbuf 할당 실패! (요청: %u bytes, 남은 heap: %u bytes)",
+                m->qird.read_actual_length, free_heap);
       }
     }
     xSemaphoreGive(gsm->tcp.tcp_mutex);
@@ -1140,7 +1154,8 @@ static void gsm_tcp_task(void *arg) {
   tcp_event_t evt;
 
   while (1) {
-    if (xQueueReceive(gsm->tcp.event_queue, &evt, portMAX_DELAY) == pdTRUE) {
+    // ★ URC 누락 대비: 3초마다 타임아웃되어 버퍼 강제 확인
+    if (xQueueReceive(gsm->tcp.event_queue, &evt, pdMS_TO_TICKS(3000)) == pdTRUE) {
       switch (evt.type) {
       case TCP_EVT_RECV_NOTIFY: {
         // ✅ 여기서는 동기 호출 불가능! (데드락 위험)
@@ -1183,6 +1198,25 @@ static void gsm_tcp_task(void *arg) {
 
       default:
         break;
+      }
+    } else {
+      // ★ 타임아웃: 연결된 소켓의 버퍼 강제 확인 (URC 누락 대비)
+      if (xSemaphoreTake(gsm->tcp.tcp_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        for (int i = 0; i < GSM_TCP_MAX_SOCKETS; i++) {
+          if (gsm->tcp.sockets[i].state == GSM_TCP_STATE_CONNECTED) {
+            xSemaphoreGive(gsm->tcp.tcp_mutex);
+
+            // 모뎀 버퍼에 데이터가 있는지 확인
+            LOG_DEBUG("TCP task: 소켓 %d 버퍼 폴링 (URC 누락 대비)", i);
+            gsm_tcp_read(gsm, i, 1460, tcp_read_complete_callback);
+
+            // mutex 다시 획득 (for loop 계속)
+            if (xSemaphoreTake(gsm->tcp.tcp_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+              break;
+            }
+          }
+        }
+        xSemaphoreGive(gsm->tcp.tcp_mutex);
       }
     }
   }
