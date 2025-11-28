@@ -200,9 +200,16 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
 
   // GGA 송신 태스크 생성
   if (g_gga_send_task_handle == NULL) {
-    xTaskCreate(ntrip_gga_send_task, "gga_send", 1024, sock,
-                tskIDLE_PRIORITY + 2, &g_gga_send_task_handle);
-    LOG_INFO("GGA 송신 태스크 생성 완료");
+    BaseType_t ret = xTaskCreate(ntrip_gga_send_task, "gga_send", 512, sock,
+                                  tskIDLE_PRIORITY + 2, &g_gga_send_task_handle);
+    if (ret != pdPASS) {
+      LOG_ERR("GGA 송신 태스크 생성 실패 (heap 부족: %d bytes 남음)",
+              xPortGetFreeHeapSize());
+      // 태스크 생성 실패해도 수신은 계속 동작
+    } else {
+      LOG_INFO("GGA 송신 태스크 생성 완료 (heap 남음: %d bytes)",
+               xPortGetFreeHeapSize());
+    }
   }
 
   // HTTP 요청 전송 (한 번만)
