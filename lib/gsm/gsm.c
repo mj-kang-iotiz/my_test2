@@ -1146,8 +1146,8 @@ static void gsm_tcp_task(void *arg) {
   tcp_event_t evt;
 
   while (1) {
-    // ★ 1초 타임아웃으로 변경 (주기적 QIRD 폴링용)
-    if (xQueueReceive(gsm->tcp.event_queue, &evt, pdMS_TO_TICKS(1000)) == pdTRUE) {
+    // 이벤트 큐에서 무한 대기 (이벤트 발생 시에만 처리)
+    if (xQueueReceive(gsm->tcp.event_queue, &evt, portMAX_DELAY) == pdTRUE) {
       switch (evt.type) {
       case TCP_EVT_RECV_NOTIFY: {
         // ✅ QIURC 메시지로 인한 즉시 수신
@@ -1199,25 +1199,6 @@ static void gsm_tcp_task(void *arg) {
 
       default:
         break;
-      }
-    } else {
-      // ★ 타임아웃 발생 (1초): QIURC 없이도 주기적으로 QIRD 폴링
-      // 서버에서 1초에 2-3개씩 데이터가 오므로, QIURC 누락 방지용
-      if (xSemaphoreTake(gsm->tcp.tcp_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        for (int i = 0; i < GSM_TCP_MAX_SOCKETS; i++) {
-          if (gsm->tcp.sockets[i].state == GSM_TCP_STATE_CONNECTED) {
-            xSemaphoreGive(gsm->tcp.tcp_mutex);
-
-            // 비동기 읽기 (데이터 있으면 콜백 호출됨)
-            gsm_tcp_read(gsm, i, 1460, tcp_read_complete_callback);
-
-            // 다음 소켓 확인을 위해 다시 뮤텍스 획득
-            if (xSemaphoreTake(gsm->tcp.tcp_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
-              break;
-            }
-          }
-        }
-        xSemaphoreGive(gsm->tcp.tcp_mutex);
       }
     }
   }
