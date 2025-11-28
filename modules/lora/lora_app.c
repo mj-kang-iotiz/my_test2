@@ -28,19 +28,18 @@ static void lora_tx_task(void *pvParameter);
  * @brief LoRa P2P BASE 모드 초기화 명령어
  */
 static const char *lora_p2p_base_cmds[] = {
-  "at+set_config=device:restart\r\n",
-  "at+set_config=lora:work_mode:0\r\n",                 // P2P 모드
+  "at+set_config=lora:work_mode:1\r\n",                 // P2P 모드 (자동 재시작됨)
   "at+set_config=lorap2p:920900000:7:0:1:8:14\r\n",     // 920.9MHz, SF7, BW125kHz, CR4/5, Preamble8, 14dBm
-  "at+set_config=lorap2p:transfer_mode:2\r\n",          // Transfer mode 2 (BASE)
+  "at+set_config=lorap2p:transfer_mode:2\r\n",          // Transfer mode 2 (BASE = TX)
 };
 
 /**
  * @brief LoRa P2P ROVER 모드 초기화 명령어
  */
 static const char *lora_p2p_rover_cmds[] = {
-  "at+set_config=lora:work_mode:0\r\n",                 // P2P 모드
+  "at+set_config=lora:work_mode:1\r\n",                 // P2P 모드 (자동 재시작됨)
   "at+set_config=lorap2p:920900000:7:0:1:8:14\r\n",     // 920.9MHz, SF7, BW125kHz, CR4/5, Preamble8, 14dBm
-  "at+set_config=lorap2p:transfer_mode:1\r\n",          // Transfer mode 1 (ROVER)
+  "at+set_config=lorap2p:transfer_mode:1\r\n",          // Transfer mode 1 (ROVER = RX)
 };
 
 #define LORA_P2P_BASE_CMD_COUNT (sizeof(lora_p2p_base_cmds) / sizeof(lora_p2p_base_cmds[0]))
@@ -116,8 +115,9 @@ static void lora_init_command_callback(bool success, void *user_data) {
       return;
     }
 
-    // 다음 명령어 전송 (restart 명령은 더 긴 타임아웃 사용)
-    uint32_t timeout = (strstr(ctx->cmd_list[ctx->current_step], "restart") != NULL)
+    // 다음 명령어 전송 (restart/work_mode 명령은 더 긴 타임아웃 사용)
+    uint32_t timeout = (strstr(ctx->cmd_list[ctx->current_step], "restart") != NULL ||
+                        strstr(ctx->cmd_list[ctx->current_step], "work_mode") != NULL)
                            ? LORA_RESTART_TIMEOUT_MS
                            : LORA_INIT_TIMEOUT_MS;
     lora_send_command_async(ctx->cmd_list[ctx->current_step],
@@ -133,8 +133,9 @@ static void lora_init_command_callback(bool success, void *user_data) {
                ctx->retry_count, LORA_INIT_MAX_RETRY,
                ctx->cmd_list[ctx->current_step]);
 
-      // 같은 명령어 재전송 (restart 명령은 더 긴 타임아웃 사용)
-      uint32_t timeout = (strstr(ctx->cmd_list[ctx->current_step], "restart") != NULL)
+      // 같은 명령어 재전송 (restart/work_mode 명령은 더 긴 타임아웃 사용)
+      uint32_t timeout = (strstr(ctx->cmd_list[ctx->current_step], "restart") != NULL ||
+                          strstr(ctx->cmd_list[ctx->current_step], "work_mode") != NULL)
                              ? LORA_RESTART_TIMEOUT_MS
                              : LORA_INIT_TIMEOUT_MS;
       lora_send_command_async(ctx->cmd_list[ctx->current_step],
@@ -174,8 +175,9 @@ static bool lora_init_p2p_base_async(lora_init_callback_t callback) {
 
   LOG_INFO("Starting LoRa P2P BASE init sequence (%d commands)", ctx->cmd_count);
 
-  // 첫 번째 명령어 전송 (restart 명령은 더 긴 타임아웃 사용)
-  uint32_t timeout = (strstr(ctx->cmd_list[0], "restart") != NULL)
+  // 첫 번째 명령어 전송 (restart/work_mode 명령은 더 긴 타임아웃 사용)
+  uint32_t timeout = (strstr(ctx->cmd_list[0], "restart") != NULL ||
+                      strstr(ctx->cmd_list[0], "work_mode") != NULL)
                          ? LORA_RESTART_TIMEOUT_MS
                          : LORA_INIT_TIMEOUT_MS;
   if (!lora_send_command_async(ctx->cmd_list[0], timeout,
@@ -208,8 +210,9 @@ static bool lora_init_p2p_rover_async(lora_init_callback_t callback) {
 
   LOG_INFO("Starting LoRa P2P ROVER init sequence (%d commands)", ctx->cmd_count);
 
-  // 첫 번째 명령어 전송 (restart 명령은 더 긴 타임아웃 사용)
-  uint32_t timeout = (strstr(ctx->cmd_list[0], "restart") != NULL)
+  // 첫 번째 명령어 전송 (restart/work_mode 명령은 더 긴 타임아웃 사용)
+  uint32_t timeout = (strstr(ctx->cmd_list[0], "restart") != NULL ||
+                      strstr(ctx->cmd_list[0], "work_mode") != NULL)
                          ? LORA_RESTART_TIMEOUT_MS
                          : LORA_INIT_TIMEOUT_MS;
   if (!lora_send_command_async(ctx->cmd_list[0], timeout,
