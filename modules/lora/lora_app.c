@@ -404,6 +404,7 @@ static void lora_process_task(void *pvParameter) {
   size_t pos = 0;
   size_t old_pos = 0;
   uint8_t dummy = 0;
+  static char temp_buf[LORA_RECV_BUF_SIZE];  // 스택 오버플로우 방지 (static)
 
   LOG_INFO("LoRa RX Task started");
 
@@ -433,7 +434,6 @@ static void lora_process_task(void *pvParameter) {
         len = pos - old_pos;
 
         // 데이터 처리
-        char temp_buf[1024];
         memcpy(temp_buf, &lora_recv[old_pos], len);
         temp_buf[len] = '\0';
 
@@ -483,7 +483,6 @@ static void lora_process_task(void *pvParameter) {
         // Circular buffer wrap-around
         len = LORA_RECV_BUF_SIZE - old_pos + pos;
 
-        char temp_buf[1024];
         size_t first_part = LORA_RECV_BUF_SIZE - old_pos;
         memcpy(temp_buf, &lora_recv[old_pos], first_part);
         memcpy(&temp_buf[first_part], &lora_recv[0], pos);
