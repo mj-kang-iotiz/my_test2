@@ -42,6 +42,7 @@ typedef struct {
   char cmd[256];                  // 전송할 AT 명령어
   uint32_t timeout_ms;            // 타임아웃 (ms)
   bool is_async;                  // true: 비동기, false: 동기
+  bool skip_response;             // true: 응답 파싱 건너뛰기 (명령어만 전송)
 
   SemaphoreHandle_t response_sem; // 응답 대기용 세마포어
   bool *result;                   // 동기 응답 결과 (true: OK, false: ERROR/TIMEOUT)
@@ -55,16 +56,16 @@ typedef struct {
  * @brief LoRa 작동 모드
  */
 typedef enum {
-  LORA_WORK_MODE_P2P = 0,      // P2P 모드
-  LORA_WORK_MODE_LORAWAN = 1   // LoRaWAN 모드
+  LORA_WORK_MODE_LORAWAN = 0,  // LoRaWAN 모드
+  LORA_WORK_MODE_P2P = 1       // P2P 모드
 } lora_work_mode_t;
 
 /**
  * @brief LoRa P2P 전송 모드
  */
 typedef enum {
-  LORA_P2P_TRANSFER_MODE_EVENT = 0,      // Event-driven (수신 시 at+recv 출력)
-  LORA_P2P_TRANSFER_MODE_CONTINUOUS = 1  // Continuous (수신 시 즉시 출력)
+  LORA_P2P_TRANSFER_MODE_RECEIVER = 1,   // Receiver mode (수신)
+  LORA_P2P_TRANSFER_MODE_SENDER = 2      // Sender mode (송신, 기본값)
 } lora_p2p_transfer_mode_t;
 
 /**
@@ -88,10 +89,12 @@ bool lora_send_command_sync(const char *cmd, uint32_t timeout_ms);
  * @param timeout_ms 타임아웃 (ms)
  * @param callback 완료 콜백
  * @param user_data 사용자 데이터
+ * @param skip_response true: 응답 파싱 건너뛰기, false: 정상 응답 대기
  * @return true: 요청 성공, false: 요청 실패
  */
 bool lora_send_command_async(const char *cmd, uint32_t timeout_ms,
-                              lora_command_callback_t callback, void *user_data);
+                              lora_command_callback_t callback, void *user_data,
+                              bool skip_response);
 
 /**
  * @brief LoRa 작동 모드 설정
