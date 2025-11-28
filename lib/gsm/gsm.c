@@ -1120,6 +1120,11 @@ static void tcp_read_complete_callback(gsm_t *gsm, gsm_cmd_t cmd, void *msg,
           // 데이터 도착 알림 (콜백에서 tcp_pbuf_dequeue 호출)
           on_recv(cid);
         }
+
+        // ★ EC25 버퍼에 더 데이터가 남아있을 수 있음!
+        // 버퍼가 비워질 때까지 계속 읽어야 새로운 QIURC가 발생함
+        // → 즉시 다시 읽기 (AT 명령 큐에 추가)
+        gsm_tcp_read(gsm, cid, 1460, tcp_read_complete_callback);
         return;
       }
     }
