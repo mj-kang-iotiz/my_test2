@@ -94,6 +94,10 @@ static void lora_uart3_init(void)
 }
 
 int lora_uart3_comm_start(void) {
+  // 1. USART를 먼저 Enable (DMA 전에!)
+  LL_USART_Enable(USART3);
+
+  // 2. DMA 설정
   LL_DMA_SetPeriphAddress(DMA1, LL_DMA_STREAM_1, (uint32_t)&USART3->DR);
   LL_DMA_SetMemoryAddress(DMA1, LL_DMA_STREAM_1,
                           (uint32_t)&lora_recv_buf[0]);
@@ -103,13 +107,16 @@ int lora_uart3_comm_start(void) {
   LL_DMA_EnableIT_FE(DMA1, LL_DMA_STREAM_1);
   LL_DMA_EnableIT_DME(DMA1, LL_DMA_STREAM_1);
 
+  // 3. USART 인터럽트 활성화
   LL_USART_EnableIT_IDLE(USART3);
   LL_USART_EnableIT_PE(USART3);
   LL_USART_EnableIT_ERROR(USART3);
-  LL_USART_EnableDMAReq_RX(USART3);
 
+  // 4. DMA Enable (USART가 이미 활성화된 상태)
   LL_DMA_EnableStream(DMA1, LL_DMA_STREAM_1);
-  LL_USART_Enable(USART3);
+
+  // 5. USART DMA request 활성화
+  LL_USART_EnableDMAReq_RX(USART3);
 
   return 0;
 }
