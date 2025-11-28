@@ -233,6 +233,16 @@ static bool lora_init_p2p_rover_async(lora_init_callback_t callback) {
  * @return true: OK, false: ERROR or 미감지
  */
 static bool lora_parse_at_response(const char *data, size_t len) {
+  // work_mode 명령: "Initialization OK" 응답 감지
+  if (strstr(data, "Initialization OK") != NULL) {
+    return true;
+  }
+
+  // work_mode 명령: "Current work_mode:" 응답도 성공으로 간주
+  if (strstr(data, "Current work_mode:") != NULL) {
+    return true;
+  }
+
   // OK 응답 감지
   if (strstr(data, "OK\r\n") != NULL || strstr(data, "OK\n") != NULL) {
     return true;
@@ -446,7 +456,9 @@ static void lora_process_task(void *pvParameter) {
         if (instance.current_cmd_req != NULL) {
           bool result = lora_parse_at_response(temp_buf, len);
 
-          if (strstr(temp_buf, "OK") || strstr(temp_buf, "ERROR")) {
+          // OK, ERROR, Initialization OK, Current work_mode 등 응답 감지
+          if (strstr(temp_buf, "OK") || strstr(temp_buf, "ERROR") ||
+              strstr(temp_buf, "Initialization") || strstr(temp_buf, "Current work_mode")) {
             // 응답 결과 저장
             if (instance.current_cmd_req->is_async) {
               instance.current_cmd_req->async_result = result;
@@ -497,7 +509,9 @@ static void lora_process_task(void *pvParameter) {
         if (instance.current_cmd_req != NULL) {
           bool result = lora_parse_at_response(temp_buf, len);
 
-          if (strstr(temp_buf, "OK") || strstr(temp_buf, "ERROR")) {
+          // OK, ERROR, Initialization OK, Current work_mode 등 응답 감지
+          if (strstr(temp_buf, "OK") || strstr(temp_buf, "ERROR") ||
+              strstr(temp_buf, "Initialization") || strstr(temp_buf, "Current work_mode")) {
             if (instance.current_cmd_req->is_async) {
               instance.current_cmd_req->async_result = result;
             } else {
