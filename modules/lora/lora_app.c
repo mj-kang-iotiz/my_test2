@@ -28,7 +28,7 @@ static void lora_tx_task(void *pvParameter);
  * @brief LoRa P2P BASE 모드 초기화 명령어
  */
 static const char *lora_p2p_base_cmds[] = {
-  "at+set_config=lora:work_mode:1\r\n",                 // P2P 모드 (자동 재시작됨)
+  // work_mode:1 건너뜀 - 이미 P2P 모드일 가능성 높음
   "at+set_config=lorap2p:920900000:7:0:1:8:14\r\n",     // 920.9MHz, SF7, BW125kHz, CR4/5, Preamble8, 14dBm
   "at+set_config=lorap2p:transfer_mode:2\r\n",          // Transfer mode 2 (BASE = TX)
 };
@@ -37,7 +37,7 @@ static const char *lora_p2p_base_cmds[] = {
  * @brief LoRa P2P ROVER 모드 초기화 명령어
  */
 static const char *lora_p2p_rover_cmds[] = {
-  "at+set_config=lora:work_mode:1\r\n",                 // P2P 모드 (자동 재시작됨)
+  // work_mode:1 건너뜀 - 이미 P2P 모드일 가능성 높음
   "at+set_config=lorap2p:920900000:7:0:1:8:14\r\n",     // 920.9MHz, SF7, BW125kHz, CR4/5, Preamble8, 14dBm
   "at+set_config=lorap2p:transfer_mode:1\r\n",          // Transfer mode 1 (ROVER = RX)
 };
