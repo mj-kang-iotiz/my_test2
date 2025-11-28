@@ -30,6 +30,7 @@
 #include "gps.h"
 #include "gps_app.h"
 #include "gsm_app.h"
+#include "lora_app.h"
 #include "led.h"
 #include "queue.h"
 #include "semphr.h"
@@ -97,6 +98,7 @@ void initThread(void *pvParameter) {
   led_set_state(3, true);
   gps_init_all();
   gsm_task_create(NULL);
+  lora_instance_init();
 
   vTaskDelete(NULL);
 }

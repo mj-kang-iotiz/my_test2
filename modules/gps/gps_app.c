@@ -452,9 +452,11 @@ static void gps_tx_task(void *pvParameter) {
         *(cmd_req.result) = false;
       }
 
-      // 명령어 전송
+      // 명령어 전송 (UART 충돌 방지를 위해 mutex 사용)
       if (inst->gps.ops && inst->gps.ops->send) {
+        xSemaphoreTake(inst->gps.mutex, portMAX_DELAY);
         inst->gps.ops->send(cmd_req.cmd, strlen(cmd_req.cmd));
+        xSemaphoreGive(inst->gps.mutex);
       } else {
         LOG_ERR("GPS[%d] send ops not available", id);
         inst->current_cmd_req = NULL;
