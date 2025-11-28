@@ -386,10 +386,10 @@ void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
       }
 
       // GGA raw 데이터를 NTRIP 서버로 전송
-      char gga_buf[100];
-      uint8_t gga_len = 0;
-      if (get_gga(gps, gga_buf, &gga_len)) {
-        ntrip_send_gga_data(gga_buf, gga_len);
+      // ★ get_gga() 호출 시 뮤텍스 재획득으로 데드락 발생하므로
+      // 이미 파싱된 데이터를 직접 사용 (이벤트 핸들러 호출 시점에 이미 유효)
+      if (gps->nmea_data.gga_is_rdy) {
+        ntrip_send_gga_data(gps->nmea_data.gga_raw, gps->nmea_data.gga_raw_pos);
       }
     }
     break;
