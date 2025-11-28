@@ -1,5 +1,10 @@
 #include "lte_init.h"
 #include "gsm.h"
+
+#ifndef TAG
+#define TAG "LTE"
+#endif
+
 #include "log.h"
 #include <string.h>
 

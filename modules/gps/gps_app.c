@@ -1,4 +1,11 @@
 #include "gps_app.h"
+
+#ifndef TAG
+#define TAG "GPS"
+#endif
+
+#include "log.h"
+
 #include "board_config.h"
 #include "gps.h"
 #include "gps_port.h"
