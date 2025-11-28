@@ -23,15 +23,13 @@ static QueueHandle_t lora_queues[1] = {NULL};
 
 static void lora_uart3_dma_init(void)
 {
-  /* Init with LL driver */
   /* DMA controller clock enable */
-  LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
+  __HAL_RCC_DMA1_CLK_ENABLE();
 
   /* DMA interrupt init */
   /* DMA1_Stream1_IRQn interrupt configuration */
   NVIC_SetPriority(DMA1_Stream1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),5, 0));
   NVIC_EnableIRQ(DMA1_Stream1_IRQn);
-
 }
 
 static void lora_uart3_init(void)
@@ -112,8 +110,9 @@ int lora_uart3_comm_start(void) {
                           (uint32_t)&lora_recv_buf[0]);
   LL_DMA_SetDataLength(LORA_PORT_UART_DMA, LORA_PORT_UART_DMA_STREAM,
                        sizeof(lora_recv_buf[0]));
-  LL_DMA_EnableIT_HT(LORA_PORT_UART_DMA, LORA_PORT_UART_DMA_STREAM);
-  LL_DMA_EnableIT_TC(LORA_PORT_UART_DMA, LORA_PORT_UART_DMA_STREAM);
+  // IDLE 인터럽트만 사용 (GPS와 동일)
+  // LL_DMA_EnableIT_HT(LORA_PORT_UART_DMA, LORA_PORT_UART_DMA_STREAM);
+  // LL_DMA_EnableIT_TC(LORA_PORT_UART_DMA, LORA_PORT_UART_DMA_STREAM);
   LL_DMA_EnableIT_TE(LORA_PORT_UART_DMA, LORA_PORT_UART_DMA_STREAM);
   LL_DMA_EnableIT_FE(LORA_PORT_UART_DMA, LORA_PORT_UART_DMA_STREAM);
   LL_DMA_EnableIT_DME(LORA_PORT_UART_DMA, LORA_PORT_UART_DMA_STREAM);
@@ -197,24 +196,10 @@ void USART3_IRQHandler(void) {
 }
 
 /**
-  * @brief This function handles DMA1 stream1 global interrupt.
-  */
-void DMA1_Stream1_IRQHandler(void)
-{
-  /* USER CODE BEGIN DMA1_Stream1_IRQn 0 */
-//   LL_DMA_ClearFlag_TC1(LORA_PORT_UART_DMA);
-//   LL_DMA_ClearFlag_HT1(LORA_PORT_UART_DMA);
-
-//   if (&lora_queues[0] != NULL) {
-//     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-//     uint8_t dummy = 0;
-//     xQueueSendFromISR(&lora_queues[0], &dummy, &xHigherPriorityTaskWoken);
-//     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-//   }
-  /* USER CODE END DMA1_Stream1_IRQn 0 */
-  /* USER CODE BEGIN DMA1_Stream1_IRQn 1 */
-
-  /* USER CODE END DMA1_Stream1_IRQn 1 */
+ * @brief This function handles DMA1 stream1 global interrupt.
+ */
+void DMA1_Stream1_IRQHandler(void) {
+  /* DMA 인터럽트는 사용하지 않음 (IDLE 인터럽트만 사용, GPS와 동일) */
 }
 
 

@@ -27,21 +27,105 @@
 
 ## 초기화
 
-`main.c`의 `initThread`에서 자동으로 호출됩니다:
+### 자동 초기화 (기본)
+
+`main.c`의 `initThread`에서 하드웨어 초기화가 자동으로 호출되고, **2초 후 자동으로 P2P 설정**이 진행됩니다:
 
 ```c
 void initThread(void *pvParameter) {
   led_init();
   gps_init_all();
   gsm_task_create(NULL);
-  lora_instance_init();  // LoRa 초기화
+  lora_instance_init();  // LoRa 하드웨어 초기화
   vTaskDelete(NULL);
 }
+
+// LoRa RX Task에서 2초 후 자동 실행:
+// - BASE 모드: AT+SET_CONFIG=lora:work_mode:0
+//              AT+SET_CONFIG=lorap2p:920900000:7:0:1:8:14
+//              AT+SET_CONFIG=lorap2p:transfer_mode:2
+//
+// - ROVER 모드: AT+SET_CONFIG=lora:work_mode:0
+//               AT+SET_CONFIG=lorap2p:920900000:7:0:1:8:14
+//               AT+SET_CONFIG=lorap2p:transfer_mode:1
+```
+
+### 자동 초기화 설정값
+
+| 항목 | 값 | 설명 |
+|------|-----|------|
+| **Work Mode** | 0 | P2P 모드 |
+| **주파수** | 920.9 MHz | 한국 LoRa 대역 CH0 |
+| **SF** | 7 | Spreading Factor 7 |
+| **BW** | 0 (125kHz) | Bandwidth 125kHz |
+| **CR** | 1 (4/5) | Coding Rate 4/5 |
+| **Preamble** | 8 | Preamble length 8 |
+| **Power** | 14 dBm | TX Power 14dBm |
+| **Transfer Mode (BASE)** | 2 | BASE 전송 모드 |
+| **Transfer Mode (ROVER)** | 1 | ROVER 전송 모드 |
+
+**Transfer Mode 설명:**
+- `0`: Event-driven - 수신 시 `at+recv=...` 출력
+- `1`: Continuous - 수신 시 즉시 데이터만 출력 (ROVER)
+- `2`: BASE 모드 (정확한 동작은 RAK4270 문서 참조)
+
+**자동 초기화 특징:**
+- ✅ GPS와 동일한 패턴 (비동기 초기화)
+- ✅ 각 명령어 자동 재시도 (최대 3회)
+- ✅ 타임아웃: 2초
+- ✅ BASE/ROVER 모드별 자동 설정
+
+## 주파수 설정 가이드
+
+### 한국 LoRa 주파수 대역 (KR920)
+
+| 채널 | 주파수 | 비고 |
+|------|--------|------|
+| CH0 | 920.9 MHz | **기본값** (가장 많이 사용) |
+| CH1 | 921.1 MHz | 간섭 피하기 |
+| CH2 | 921.3 MHz | 간섭 피하기 |
+| CH3 | 921.5 MHz | 간섭 피하기 |
+| CH4 | 921.7 MHz | 간섭 피하기 |
+| CH5 | 921.9 MHz | 간섭 피하기 |
+| CH6 | 922.1 MHz | 간섭 피하기 |
+| CH7 | 922.3 MHz | FSK only |
+
+### 디바이스끼리만 통신하려면?
+
+**같은 설정 사용:**
+```c
+// BASE와 ROVER 모두 동일 설정
+주파수: 920900000 (920.9MHz)
+SF: 7
+BW: 0 (125kHz)
+CR: 1 (4/5)
+Preamble: 8
+```
+
+**다른 기기와 간섭 피하려면:**
+- 주파수를 921.1MHz, 921.5MHz 등으로 변경
+- 코드에서 `920900000` → `921100000` 수정 (`lora_app.c:30, 39`)
+
+### 주파수 변경 방법
+
+**자동 초기화 값 변경:**
+```c
+// lora_app.c 파일에서 수정
+static const char *lora_p2p_base_cmds[] = {
+  "AT+SET_CONFIG=lora:work_mode:0\r\n",
+  "AT+SET_CONFIG=lorap2p:921100000:7:0:1:8:14\r\n",  // 921.1MHz로 변경
+  "AT+SET_CONFIG=lorap2p:transfer_mode:2\r\n",
+};
+```
+
+**또는 수동 설정:**
+```c
+lora_set_p2p_config(921100000, 7, 0, 1, 8, 14, 2000);  // 921.1MHz
 ```
 
 ## 기본 사용법
 
-### 1. LoRa P2P 모드 설정
+### 1. LoRa P2P 모드 설정 (수동 - 자동 초기화를 사용하지 않는 경우)
 
 ```c
 #include "lora_app.h"

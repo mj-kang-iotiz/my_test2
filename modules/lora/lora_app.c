@@ -16,9 +16,42 @@
 
 #define LORA_CMD_QUEUE_SIZE 10
 #define LORA_AT_CMD_TIMEOUT_MS 2000
+#define LORA_INIT_MAX_RETRY 3
+#define LORA_INIT_TIMEOUT_MS 2000
 
 static void lora_process_task(void *pvParameter);
 static void lora_tx_task(void *pvParameter);
+
+/**
+ * @brief LoRa P2P BASE 모드 초기화 명령어
+ */
+static const char *lora_p2p_base_cmds[] = {
+  "AT+SET_CONFIG=lora:work_mode:0\r\n",                 // P2P 모드
+  "AT+SET_CONFIG=lorap2p:920900000:7:0:1:8:14\r\n",     // 920.9MHz, SF7, BW125kHz, CR4/5, Preamble8, 14dBm
+  "AT+SET_CONFIG=lorap2p:transfer_mode:2\r\n",          // Transfer mode 2 (BASE)
+};
+
+/**
+ * @brief LoRa P2P ROVER 모드 초기화 명령어
+ */
+static const char *lora_p2p_rover_cmds[] = {
+  "AT+SET_CONFIG=lora:work_mode:0\r\n",                 // P2P 모드
+  "AT+SET_CONFIG=lorap2p:920900000:7:0:1:8:14\r\n",     // 920.9MHz, SF7, BW125kHz, CR4/5, Preamble8, 14dBm
+  "AT+SET_CONFIG=lorap2p:transfer_mode:1\r\n",          // Transfer mode 1 (ROVER)
+};
+
+#define LORA_P2P_BASE_CMD_COUNT (sizeof(lora_p2p_base_cmds) / sizeof(lora_p2p_base_cmds[0]))
+#define LORA_P2P_ROVER_CMD_COUNT (sizeof(lora_p2p_rover_cmds) / sizeof(lora_p2p_rover_cmds[0]))
+
+typedef void (*lora_init_callback_t)(bool success, void *user_data);
+
+typedef struct {
+  uint8_t current_step;         // 현재 단계 (0 ~ cmd_count-1)
+  uint8_t retry_count;          // 현재 단계 재시도 횟수
+  const char **cmd_list;        // 명령어 리스트
+  uint8_t cmd_count;            // 명령어 개수
+  lora_init_callback_t callback; // 완료 콜백
+} lora_init_context_t;
 
 typedef struct
 {
@@ -36,6 +69,143 @@ typedef struct
 } lora_app_instance_t;
 
 static lora_app_instance_t instance;
+
+/**
+ * @brief LoRa 초기화 완료 콜백
+ */
+static void lora_overall_init_complete(bool success, void *user_data) {
+#if LORA_MODE == LORA_MODE_BASE
+  LOG_INFO("LoRa BASE init %s", success ? "succeeded" : "failed");
+#elif LORA_MODE == LORA_MODE_ROVER
+  LOG_INFO("LoRa ROVER init %s", success ? "succeeded" : "failed");
+#endif
+}
+
+/**
+ * @brief LoRa 초기화 명령어 콜백 (재귀적 호출)
+ */
+static void lora_init_command_callback(bool success, void *user_data) {
+  lora_init_context_t *ctx = (lora_init_context_t *)user_data;
+
+  if (!ctx) {
+    LOG_ERR("LoRa init context is NULL");
+    return;
+  }
+
+  if (success) {
+    // 명령어 성공
+    LOG_INFO("LoRa init step %d/%d OK: %s",
+             ctx->current_step + 1, ctx->cmd_count,
+             ctx->cmd_list[ctx->current_step]);
+
+    // 다음 단계로
+    ctx->current_step++;
+    ctx->retry_count = 0;
+
+    // 모든 단계 완료?
+    if (ctx->current_step >= ctx->cmd_count) {
+      LOG_INFO("LoRa init sequence complete!");
+      if (ctx->callback) {
+        ctx->callback(true, NULL);
+      }
+      // 컨텍스트 메모리 해제
+      vPortFree(ctx);
+      return;
+    }
+
+    // 다음 명령어 전송
+    lora_send_command_async(ctx->cmd_list[ctx->current_step],
+                            LORA_INIT_TIMEOUT_MS, lora_init_command_callback, ctx);
+  } else {
+    // 명령어 실패
+    ctx->retry_count++;
+
+    if (ctx->retry_count < LORA_INIT_MAX_RETRY) {
+      // 재시도
+      LOG_WARN("LoRa init step %d/%d failed, retrying (%d/%d): %s",
+               ctx->current_step + 1, ctx->cmd_count,
+               ctx->retry_count, LORA_INIT_MAX_RETRY,
+               ctx->cmd_list[ctx->current_step]);
+
+      // 같은 명령어 재전송
+      lora_send_command_async(ctx->cmd_list[ctx->current_step],
+                              LORA_INIT_TIMEOUT_MS, lora_init_command_callback, ctx);
+    } else {
+      // 최대 재시도 초과
+      LOG_ERR("LoRa init failed at step %d/%d after %d retries: %s",
+              ctx->current_step + 1, ctx->cmd_count,
+              LORA_INIT_MAX_RETRY, ctx->cmd_list[ctx->current_step]);
+
+      if (ctx->callback) {
+        ctx->callback(false, NULL);
+      }
+      // 컨텍스트 메모리 해제
+      vPortFree(ctx);
+    }
+  }
+}
+
+/**
+ * @brief LoRa P2P BASE 모드 초기화 (비동기)
+ */
+static bool lora_init_p2p_base_async(lora_init_callback_t callback) {
+  // 초기화 컨텍스트 생성 (동적 할당)
+  lora_init_context_t *ctx = (lora_init_context_t *)pvPortMalloc(sizeof(lora_init_context_t));
+  if (!ctx) {
+    LOG_ERR("Failed to allocate LoRa init context");
+    return false;
+  }
+
+  // 컨텍스트 초기화
+  ctx->current_step = 0;
+  ctx->retry_count = 0;
+  ctx->cmd_list = lora_p2p_base_cmds;
+  ctx->cmd_count = LORA_P2P_BASE_CMD_COUNT;
+  ctx->callback = callback;
+
+  LOG_INFO("Starting LoRa P2P BASE init sequence (%d commands)", ctx->cmd_count);
+
+  // 첫 번째 명령어 전송
+  if (!lora_send_command_async(ctx->cmd_list[0], LORA_INIT_TIMEOUT_MS,
+                                lora_init_command_callback, ctx)) {
+    LOG_ERR("Failed to start LoRa init sequence");
+    vPortFree(ctx);
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * @brief LoRa P2P ROVER 모드 초기화 (비동기)
+ */
+static bool lora_init_p2p_rover_async(lora_init_callback_t callback) {
+  // 초기화 컨텍스트 생성 (동적 할당)
+  lora_init_context_t *ctx = (lora_init_context_t *)pvPortMalloc(sizeof(lora_init_context_t));
+  if (!ctx) {
+    LOG_ERR("Failed to allocate LoRa init context");
+    return false;
+  }
+
+  // 컨텍스트 초기화
+  ctx->current_step = 0;
+  ctx->retry_count = 0;
+  ctx->cmd_list = lora_p2p_rover_cmds;
+  ctx->cmd_count = LORA_P2P_ROVER_CMD_COUNT;
+  ctx->callback = callback;
+
+  LOG_INFO("Starting LoRa P2P ROVER init sequence (%d commands)", ctx->cmd_count);
+
+  // 첫 번째 명령어 전송
+  if (!lora_send_command_async(ctx->cmd_list[0], LORA_INIT_TIMEOUT_MS,
+                                lora_init_command_callback, ctx)) {
+    LOG_ERR("Failed to start LoRa init sequence");
+    vPortFree(ctx);
+    return false;
+  }
+
+  return true;
+}
 
 /**
  * @brief AT 명령어 응답 파싱 (OK/ERROR 감지)
@@ -214,6 +384,15 @@ static void lora_process_task(void *pvParameter) {
   uint8_t dummy = 0;
 
   LOG_INFO("LoRa RX Task started");
+
+  // GPS와 동일하게 2초 대기 후 자동 초기화
+  vTaskDelay(pdMS_TO_TICKS(2000));
+
+#if LORA_MODE == LORA_MODE_BASE
+  lora_init_p2p_base_async(lora_overall_init_complete);
+#elif LORA_MODE == LORA_MODE_ROVER
+  lora_init_p2p_rover_async(lora_overall_init_complete);
+#endif
 
   while (1) {
     xQueueReceive(instance.queue, &dummy, portMAX_DELAY);
