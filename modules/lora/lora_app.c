@@ -26,7 +26,8 @@ static void lora_tx_task(void *pvParameter);
  * @brief LoRa P2P BASE 모드 초기화 명령어
  */
 static const char *lora_p2p_base_cmds[] = {
-"at+set_config=device:restart\r\n",
+  // "at+set_config=device:restart\r\n",  // 임시로 주석 처리 (디버깅용)
+  "at+help\r\n",  // 테스트용
   "at+set_config=lora:work_mode:0\r\n",                 // P2P 모드
   "at+set_config=lorap2p:920900000:7:0:1:8:14\r\n",     // 920.9MHz, SF7, BW125kHz, CR4/5, Preamble8, 14dBm
   "at+set_config=lorap2p:transfer_mode:2\r\n",          // Transfer mode 2 (BASE)
