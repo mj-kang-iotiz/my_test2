@@ -17,7 +17,7 @@
 #define LORA_CMD_QUEUE_SIZE 10
 #define LORA_AT_CMD_TIMEOUT_MS 2000
 #define LORA_INIT_MAX_RETRY 3
-#define LORA_INIT_TIMEOUT_MS 2000
+#define LORA_INIT_TIMEOUT_MS 5000  // work_mode는 재시작을 유발하므로 5초로 증가
 
 static void lora_process_task(void *pvParameter);
 static void lora_tx_task(void *pvParameter);
@@ -27,7 +27,7 @@ static void lora_tx_task(void *pvParameter);
  */
 static const char *lora_p2p_base_cmds[] = {
 "at+set_config=device:restart\r\n",
-  "at+set_config=lora:work_mode:0\r\n",                 // P2P 모드
+  "at+set_config=lora:work_mode:1\r\n",                 // P2P 모드 (1=P2P, 0=LoRaWAN)
   "at+set_config=lorap2p:920900000:7:0:1:8:14\r\n",     // 920.9MHz, SF7, BW125kHz, CR4/5, Preamble8, 14dBm
   "at+set_config=lorap2p:transfer_mode:2\r\n",          // Transfer mode 2 (BASE)
 };
@@ -36,7 +36,7 @@ static const char *lora_p2p_base_cmds[] = {
  * @brief LoRa P2P ROVER 모드 초기화 명령어
  */
 static const char *lora_p2p_rover_cmds[] = {
-  "at+set_config=lora:work_mode:0\r\n",                 // P2P 모드
+  "at+set_config=lora:work_mode:1\r\n",                 // P2P 모드 (1=P2P, 0=LoRaWAN)
   "at+set_config=lorap2p:920900000:7:0:1:8:14\r\n",     // 920.9MHz, SF7, BW125kHz, CR4/5, Preamble8, 14dBm
   "at+set_config=lorap2p:transfer_mode:1\r\n",          // Transfer mode 1 (ROVER)
 };
@@ -216,13 +216,16 @@ static bool lora_init_p2p_rover_async(lora_init_callback_t callback) {
  * @return true: OK, false: ERROR or 미감지
  */
 static bool lora_parse_at_response(const char *data, size_t len) {
-  // OK 응답 감지
-  if (strstr(data, "OK\r\n") != NULL || strstr(data, "OK\n") != NULL) {
+  // OK 응답 감지 (다양한 형식 지원)
+  // - "OK\r\n", "OK\n" (일반 응답)
+  // - "Initialization OK" (work_mode 변경 시)
+  // - 대소문자 무시
+  if (strstr(data, "OK") != NULL || strstr(data, "ok") != NULL) {
     return true;
   }
 
   // ERROR 응답 감지
-  if (strstr(data, "ERROR") != NULL) {
+  if (strstr(data, "ERROR") != NULL || strstr(data, "error") != NULL) {
     return false;
   }
 
@@ -665,7 +668,7 @@ bool lora_send_command_async(const char *cmd, uint32_t timeout_ms,
 
 bool lora_set_work_mode(lora_work_mode_t mode, uint32_t timeout_ms) {
   char cmd[64];
-  snprintf(cmd, sizeof(cmd), "AT+SET_CONFIG=lora:work_mode:%d\r\n", mode);
+  snprintf(cmd, sizeof(cmd), "at+set_config=lora:work_mode:%d\r\n", mode);
   return lora_send_command_sync(cmd, timeout_ms);
 }
 
@@ -673,14 +676,14 @@ bool lora_set_p2p_config(uint32_t freq, uint8_t sf, uint8_t bw, uint8_t cr,
                          uint16_t preamlen, uint8_t pwr, uint32_t timeout_ms) {
   char cmd[128];
   snprintf(cmd, sizeof(cmd),
-           "AT+SET_CONFIG=lorap2p:%lu:%d:%d:%d:%d:%d\r\n",
+           "at+set_config=lorap2p:%lu:%d:%d:%d:%d:%d\r\n",
            freq, sf, bw, cr, preamlen, pwr);
   return lora_send_command_sync(cmd, timeout_ms);
 }
 
 bool lora_set_p2p_transfer_mode(lora_p2p_transfer_mode_t mode, uint32_t timeout_ms) {
   char cmd[64];
-  snprintf(cmd, sizeof(cmd), "AT+SET_CONFIG=lorap2p:transfer_mode:%d\r\n", mode);
+  snprintf(cmd, sizeof(cmd), "at+set_config=lorap2p:transfer_mode:%d\r\n", mode);
   return lora_send_command_sync(cmd, timeout_ms);
 }
 
@@ -691,7 +694,7 @@ bool lora_send_p2p_data(const char *data, uint32_t timeout_ms) {
   }
 
   char cmd[512];
-  snprintf(cmd, sizeof(cmd), "AT+SEND=lorap2p:%s\r\n", data);
+  snprintf(cmd, sizeof(cmd), "at+send=lorap2p:%s\r\n", data);
   return lora_send_command_sync(cmd, timeout_ms);
 }
 

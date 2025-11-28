@@ -55,16 +55,16 @@ typedef struct {
  * @brief LoRa 작동 모드
  */
 typedef enum {
-  LORA_WORK_MODE_P2P = 0,      // P2P 모드
-  LORA_WORK_MODE_LORAWAN = 1   // LoRaWAN 모드
+  LORA_WORK_MODE_LORAWAN = 0,  // LoRaWAN 모드
+  LORA_WORK_MODE_P2P = 1       // P2P 모드
 } lora_work_mode_t;
 
 /**
  * @brief LoRa P2P 전송 모드
  */
 typedef enum {
-  LORA_P2P_TRANSFER_MODE_EVENT = 0,      // Event-driven (수신 시 at+recv 출력)
-  LORA_P2P_TRANSFER_MODE_CONTINUOUS = 1  // Continuous (수신 시 즉시 출력)
+  LORA_P2P_TRANSFER_MODE_RECEIVER = 1,   // Receiver mode (수신)
+  LORA_P2P_TRANSFER_MODE_SENDER = 2      // Sender mode (송신, 기본값)
 } lora_p2p_transfer_mode_t;
 
 /**
