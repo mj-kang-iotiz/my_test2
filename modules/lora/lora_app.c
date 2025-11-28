@@ -542,8 +542,9 @@ void lora_instance_init(void)
 
     lora_port_set_queue(instance.queue);
     instance.mutex = xSemaphoreCreateMutex();
+    lora_port_start(&instance.lora);
 
-    // RX Task 생성 (UART 시작 전에 Task 먼저 생성)
+    // RX Task 생성
     BaseType_t ret = xTaskCreate(lora_process_task, "lora_rx", 1024,
                                  NULL, tskIDLE_PRIORITY + 3, &instance.rx_task);
     if (ret != pdPASS) {
@@ -551,16 +552,13 @@ void lora_instance_init(void)
       return;
     }
 
-    // TX Task 생성 (UART 시작 전에 Task 먼저 생성)
+    // TX Task 생성
     ret = xTaskCreate(lora_tx_task, "lora_tx", 1024,
                       NULL, tskIDLE_PRIORITY + 3, &instance.tx_task);
     if (ret != pdPASS) {
       LOG_ERR("LORA TX Task 생성 실패");
       return;
     }
-
-    // Task 생성 후 UART 시작 (인터럽트 처리 준비 완료)
-    lora_port_start(&instance.lora);
 
     instance.initialized = true;
 
