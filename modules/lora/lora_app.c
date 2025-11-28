@@ -315,12 +315,19 @@ static void lora_tx_task(void *pvParameter) {
       }
 
       // 명령어 전송 (UART 충돌 방지를 위해 mutex 사용)
+      LOG_INFO("TX: ops=%p, send=%p", instance.lora.ops,
+               instance.lora.ops ? instance.lora.ops->send : NULL);
+
       if (instance.lora.ops && instance.lora.ops->send) {
         xSemaphoreTake(instance.mutex, portMAX_DELAY);
+        LOG_INFO("TX: Calling ops->send()");
         instance.lora.ops->send(cmd_req.cmd, strlen(cmd_req.cmd));
+        LOG_INFO("TX: ops->send() completed");
         xSemaphoreGive(instance.mutex);
       } else {
-        LOG_ERR("LoRa send ops not available");
+        LOG_ERR("LoRa send ops not available: ops=%p, send=%p",
+                instance.lora.ops,
+                instance.lora.ops ? instance.lora.ops->send : NULL);
         instance.current_cmd_req = NULL;
         if (cmd_req.is_async) {
           cmd_req.async_result = false;
@@ -513,10 +520,16 @@ void lora_instance_init(void)
     memset(&instance, 0, sizeof(lora_app_instance_t));
     lora_init(&instance.lora);
 
+    LOG_INFO("lora_instance_init 시작");
+
     if (lora_port_init_instance(&instance.lora) != 0) {
       LOG_ERR("LORA 포트 초기화 실패");
       return;
     }
+
+    LOG_INFO("lora_port_init_instance 성공, ops=%p, send=%p",
+             instance.lora.ops,
+             instance.lora.ops ? instance.lora.ops->send : NULL);
 
 #if LORA_MODE == LORA_MODE_BASE
     instance.queue = xQueueCreate(10, sizeof(uint8_t));
