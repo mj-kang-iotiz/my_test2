@@ -3,8 +3,8 @@
 
 #define BOARD_VERSION "v0.0.1"
 
-#define BOARD_TYPE_BASE_UNICORE // UM982 base
-// #define BOARD_TYPE_BASE_UBLOX // f9p base
+//#define BOARD_TYPE_BASE_UNICORE // UM982 base
+ #define BOARD_TYPE_BASE_UBLOX // f9p base
 //  #define BOARD_TYPE_ROVER_UNICORE // um982 rover
 // #define BOARD_TYPE_ROVER_UBLOX // f9p rover
 

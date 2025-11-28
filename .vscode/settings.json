@@ -14,6 +14,11 @@
         "stdint.h": "c",
         "gps_types.h": "c",
         "stm32f4xx_ll_system.h": "c",
-        "gps_port.h": "c"
+        "gps_port.h": "c",
+        "log.h": "c",
+        "gps_nmea.h": "c",
+        "gps_ubx.h": "c",
+        "stm32f4xx_ll_dma.h": "c",
+        "board_config.h": "c"
     }
 }

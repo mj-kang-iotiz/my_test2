@@ -1,7 +1,12 @@
 #include "lte_init.h"
 #include "gsm.h"
-#include "log.h"
 #include <string.h>
+
+#ifndef TAG
+  #define TAG "GSM_INIT"
+#endif
+
+#include "log.h"
 
 // LTE 초기화 상태 및 재시도 카운터
 static lte_init_state_t lte_init_state = LTE_INIT_IDLE;

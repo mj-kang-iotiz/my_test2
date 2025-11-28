@@ -6,12 +6,6 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-#ifndef TAG
-#define TAG "LED"
-#endif
-
-#include "log.h"
-
 typedef enum {
   LED_ID_NONE,
   LED_ID_1 = 1,

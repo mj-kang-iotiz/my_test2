@@ -96,7 +96,7 @@ void initThread(void *pvParameter) {
   led_set_color(3, LED_COLOR_RED);
   led_set_state(3, true);
   gps_init_all();
-//  gsm_task_create(NULL);
+  gsm_task_create(NULL);
 
   vTaskDelete(NULL);
 }
@@ -136,13 +136,8 @@ int main(void) {
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  //  MX_USART1_UART_Init();
   MX_USART6_UART_Init();
-  //  MX_UART4_Init();
-  //  MX_UART5_Init();
-  //  MX_USART3_UART_Init();
   MX_ADC1_Init();
-  //  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
   xTaskCreate(initThread, "init", 2048, NULL, tskIDLE_PRIORITY + 1, NULL);
 

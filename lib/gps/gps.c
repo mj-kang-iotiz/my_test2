@@ -3,6 +3,12 @@
 #include "parser.h"
 #include <string.h>
 
+#ifndef TAG
+  #define TAG "GPS_PARSE"
+#endif
+
+#include "log.h"
+
 static inline void add_nmea_chksum(gps_t *gps, char ch);
 static inline uint8_t check_nmea_chksum(gps_t *gps);
 static inline void term_add(gps_t *gps, char ch);
@@ -18,13 +24,13 @@ void _gps_gga_raw_add(gps_t *gps, char ch) {
 bool get_gga(gps_t *gps, char *buf, uint8_t *len) {
   bool ret = false;
 
-  xSemaphoreTake(gps->mutex, portMAX_DELAY);
+  // xSemaphoreTake(gps->mutex, portMAX_DELAY);
   if (gps->nmea_data.gga_is_rdy && gps->nmea_data.gga.fix != GPS_FIX_INVALID) {
     strncpy(buf, gps->nmea_data.gga_raw, gps->nmea_data.gga_raw_pos + 1);
     *len = gps->nmea_data.gga_raw_pos;
     ret = true;
   }
-  xSemaphoreGive(gps->mutex);
+  // xSemaphoreGive(gps->mutex);
 
   return ret;
 }

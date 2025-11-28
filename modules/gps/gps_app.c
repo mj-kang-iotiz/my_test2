@@ -3,8 +3,15 @@
 #include "gps.h"
 #include "gps_port.h"
 #include "gps_unicore.h"
+#include "ntrip_app.h"
 #include "led.h"
 #include <string.h>
+
+#ifndef TAG
+  #define TAG "GPS_APP"
+#endif
+
+#include "log.h"
 
 #define GPS_UART_MAX_RECV_SIZE 2048
 
@@ -181,22 +188,22 @@ void _add_hp_avg_data(gps_instance_t *inst) {
 #define UM982_BASE_CMD_COUNT (sizeof(um982_base_cmds) / sizeof(um982_base_cmds[0]))
 
 static const char *um982_base_cmds[] = {
-    "MODE BASE TIME 60\r\n",
 	"unmask BDS\r\n",
-    "rtcm1033 com1 10\r\n",
-    "rtcm1006 com1 10\r\n",
-    "rtcm1074 com1 1\r\n",
-    "rtcm1124 com1 1\r\n",
-    "rtcm1084 com1 1\r\n",
-    "rtcm1094 com1 1\r\n",
-    "gpgga com1 1\r\n",
-    "BESTNAVB 1\r\n",
+  "MODE BASE TIME 60\r\n",
+  "rtcm1033 com1 10\r\n",
+  "rtcm1006 com1 10\r\n",
+  "rtcm1074 com1 1\r\n",
+  "rtcm1124 com1 1\r\n",
+  "rtcm1084 com1 1\r\n",
+  "rtcm1094 com1 1\r\n",
+  "gpgga com1 1\r\n",
+  "BESTNAVB 1\r\n",
 };
 
 static const char *um982_rover_cmds[] = {
-  "MODE ROVER\r\n",
   "unmask BDS\r\n",
-  "GNGGA 1\r\n",
+  "MODE ROVER\r\n",
+  "gpgga com1 1\r\n",
   "BESTNAVB 1\r\n",
 };
 
@@ -213,12 +220,13 @@ typedef struct {
   gps_init_callback_t callback; // 완료 콜백
 } gps_init_context_t;
 
-
+#if defined(BOARD_TYPE_BASE_UNICORE) || defined(BOARD_TYPE_ROVER_UNICORE)
 static void overall_init_complete(bool success, void *user_data) {
   gps_id_t id = (gps_id_t)(uintptr_t)user_data;
   LOG_INFO("GPS[%d] Overall init %s", id, success ? "succeeded" : "failed");
   // 여기에 init_state 설정이나 다른 시스템 알림 추가 가능
 }
+#endif
 
 static void gps_init_command_callback(bool success, void *user_data) {
   gps_init_context_t *ctx = (gps_init_context_t *)user_data;
@@ -382,6 +390,11 @@ void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
       if (gps->nmea_data.gga.fix >= GPS_FIX_GPS) {
         _add_gga_avg_data(inst, gps->nmea_data.gga.lat, gps->nmea_data.gga.lon,
                           gps->nmea_data.gga.alt);
+      }
+
+      if (gps->nmea_data.gga_is_rdy) {
+        ntrip_send_gga_data(gps->nmea_data.gga_raw,
+                           gps->nmea_data.gga_raw_pos);
       }
     }
     break;

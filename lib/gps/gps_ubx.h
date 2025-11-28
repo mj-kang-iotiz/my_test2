@@ -19,7 +19,8 @@ typedef enum {
  */
 typedef enum {
   GPS_UBX_NAV_ID_NONE = 0,
-  GPS_UBX_NAV_ID_HPPOSLLH = 0x14,
+  GPS_UBX_NAV_ID_HPPOSLLH = 0x14, ///< High Precision Position Solution
+  GPS_UBX_NAV_ID_RELPOSNED = 0x3C, ///< Relative Positioning Information in NED frame
 } gps_ubx_nav_id_t;
 
 /**
@@ -43,6 +44,41 @@ typedef struct {
   uint32_t vacc;    // 0.1mm 단위
 } gps_ubx_nav_hpposllh_t;
 
+typedef struct {
+  uint8_t version;
+  uint8_t reserved0;
+  uint16_t ref_station_id;
+  uint32_t tow;
+  int32_t rel_pos_n;
+  int32_t rel_pos_e;
+  int32_t rel_pos_d;
+  int32_t rel_pos_length;
+  int32_t rel_pos_heading;
+  uint8_t reserved1[4];
+  int8_t rel_pos_hpn;
+  int8_t rel_pos_hpe;
+  int8_t rel_pos_hpd;
+  int8_t rel_pos_hp_length;
+  uint32_t acc_n;
+  uint32_t acc_e;
+  uint32_t acc_d;
+  uint32_t acc_length;
+  uint32_t acc_heading;
+  uint8_t reserved2[4];
+  struct {
+    uint32_t gnss_fix_ok : 1;
+    uint32_t diff_sol_n : 1;
+    uint32_t rel_pos_valid : 1;
+    uint32_t carr_sol_n : 2;
+    uint32_t is_moving : 1;
+    uint32_t ref_pos_miss : 1;
+    uint32_t ref_obs_miss : 1;
+    uint32_t rel_pos_heading_valid : 1;
+    uint32_t rel_pos_normalized : 1;
+    uint32_t reserved : 22;
+  }flags;
+} gps_ubx_nav_relposned_t;
+
 /**
  * @brief UBX 파싱에 필요한 변수
  *
@@ -64,6 +100,7 @@ typedef struct {
  */
 typedef struct {
   gps_ubx_nav_hpposllh_t hpposllh;
+  gps_ubx_nav_relposned_t relposned;
 } gps_ubx_data_t;
 
 typedef struct gps_s gps_t;

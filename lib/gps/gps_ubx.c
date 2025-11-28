@@ -46,10 +46,14 @@ static inline uint8_t check_ubx_chksum(gps_t *gps) {
  * @param[inout] gps
  */
 static void store_ubx_nav_data(gps_t *gps) {
+  char* data = &gps->payload[4];
   switch (gps->ubx.id) {
   case GPS_UBX_NAV_ID_HPPOSLLH:
-    memcpy(&gps->ubx_data.hpposllh, &gps->payload[4],
-           sizeof(gps_ubx_nav_hpposllh_t));
+    memcpy(&gps->ubx_data.hpposllh, data, sizeof(gps_ubx_nav_hpposllh_t));
+    break;
+
+  case GPS_UBX_NAV_ID_RELPOSNED:
+    memcpy(&gps->ubx_data.relposned, data, sizeof(gps_ubx_nav_relposned_t));
     break;
 
   default:

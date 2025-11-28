@@ -1,5 +1,4 @@
 #include "gsm.h"
-#include "log.h"
 #include "parser.h" // parser.c 함수 사용
 #include "stm32f4xx_hal.h"
 #include "stm32f4xx_ll_usart.h"
@@ -7,41 +6,56 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifndef TAG
+  #define TAG "GSM"
+#endif
+
+#include "log.h"
+
 #define IS_ASCII(x) (((x) >= 32 && (x) <= 126) || (x) == '\r' || (x) == '\n')
 
-void handle_urc_rdy(gsm_t *gsm, const char *data, size_t len) {
+void handle_urc_rdy(gsm_t *gsm, const char *data, size_t len)
+{
   gsm->status.is_powerd = 1;
 
   // 이벤트 핸들러 호출
-  if (gsm->evt_handler.handler) {
+  if (gsm->evt_handler.handler)
+  {
     gsm->evt_handler.handler(GSM_EVT_RDY, gsm->evt_handler.args);
   }
 }
 
-void handle_urc_powered_down(gsm_t *gsm, const char *data, size_t len) {
+void handle_urc_powered_down(gsm_t *gsm, const char *data, size_t len)
+{
   gsm->status.is_powerd = 0;
 
   // 이벤트 핸들러 호출
-  if (gsm->evt_handler.handler) {
+  if (gsm->evt_handler.handler)
+  {
     gsm->evt_handler.handler(GSM_EVT_POWERED_DOWN, gsm->evt_handler.args);
   }
 }
 
-void handle_urc_cmee(gsm_t *gsm, const char *data, size_t len) {
+void handle_urc_cmee(gsm_t *gsm, const char *data, size_t len)
+{
   // TODO: +CMEE 에러 코드 파싱
 }
 
-void handle_urc_cgdcont(gsm_t *gsm, const char *data, size_t len) {
+void handle_urc_cgdcont(gsm_t *gsm, const char *data, size_t len)
+{
   gsm_msg_t *target;
   gsm_at_mode_t mode;
   bool is_urc;
   gsm_msg_t local_msg = {0};
 
-  if (gsm->current_cmd && gsm->current_cmd->cmd == GSM_CMD_CGDCONT) {
+  if (gsm->current_cmd && gsm->current_cmd->cmd == GSM_CMD_CGDCONT)
+  {
     target = &gsm->current_cmd->msg;
     mode = gsm->current_cmd->at_mode;
     is_urc = false;
-  } else {
+  }
+  else
+  {
     // URC → 로컬 변수에 저장
     target = &local_msg;
     mode = GSM_AT_READ;
@@ -1120,6 +1134,8 @@ static void tcp_read_complete_callback(gsm_t *gsm, gsm_cmd_t cmd, void *msg,
           // 데이터 도착 알림 (콜백에서 tcp_pbuf_dequeue 호출)
           on_recv(cid);
         }
+        tcp_event_t evt = {.type = TCP_EVT_CONTINUE_READ, .connect_id = cid};
+        xQueueSend(gsm->tcp.event_queue, &evt, 0);  // ⭐ 추가
         return;
       }
     }
@@ -1177,6 +1193,15 @@ static void gsm_tcp_task(void *arg) {
           } else {
             xSemaphoreGive(gsm->tcp.tcp_mutex);
           }
+        }
+        break;
+      }
+
+      case TCP_EVT_CONTINUE_READ: {  // ⭐ 추가 (RECV와 CLOSED 사이에)
+        // ✅ EC25 버퍼 드레인 계속 (QIURC 방지)
+        // 콜백에서 데이터를 읽은 후, 버퍼에 더 데이터가 있을 수 있으므로 계속 읽음
+        if (evt.connect_id < GSM_TCP_MAX_SOCKETS) {
+          gsm_tcp_read(gsm, evt.connect_id, 1460, tcp_read_complete_callback);
         }
         break;
       }

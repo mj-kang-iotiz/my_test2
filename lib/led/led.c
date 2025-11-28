@@ -1,6 +1,12 @@
 #include "led.h"
 #include <string.h>
 
+#ifndef TAG
+  #define TAG "LED"
+#endif
+
+#include "log.h"
+
 #define LED1_R_PORT GPIOC
 #define LED1_R_PIN GPIO_PIN_1
 #define LED1_G_PORT GPIOC
