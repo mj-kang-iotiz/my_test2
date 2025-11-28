@@ -115,8 +115,10 @@ static void lora_init_command_callback(bool success, void *user_data) {
     }
 
     // 다음 명령어 전송
+    // work_mode 명령어는 응답 파싱 건너뛰기
+    bool skip = (strstr(ctx->cmd_list[ctx->current_step], "work_mode") != NULL);
     lora_send_command_async(ctx->cmd_list[ctx->current_step],
-                            LORA_INIT_TIMEOUT_MS, lora_init_command_callback, ctx);
+                            LORA_INIT_TIMEOUT_MS, lora_init_command_callback, ctx, skip);
   } else {
     // 명령어 실패
     ctx->retry_count++;
@@ -129,8 +131,10 @@ static void lora_init_command_callback(bool success, void *user_data) {
                ctx->cmd_list[ctx->current_step]);
 
       // 같은 명령어 재전송
+      // work_mode 명령어는 응답 파싱 건너뛰기
+      bool skip = (strstr(ctx->cmd_list[ctx->current_step], "work_mode") != NULL);
       lora_send_command_async(ctx->cmd_list[ctx->current_step],
-                              LORA_INIT_TIMEOUT_MS, lora_init_command_callback, ctx);
+                              LORA_INIT_TIMEOUT_MS, lora_init_command_callback, ctx, skip);
     } else {
       // 최대 재시도 초과
       LOG_ERR("LoRa init failed at step %d/%d after %d retries: %s",
@@ -167,8 +171,10 @@ static bool lora_init_p2p_base_async(lora_init_callback_t callback) {
   LOG_INFO("Starting LoRa P2P BASE init sequence (%d commands)", ctx->cmd_count);
 
   // 첫 번째 명령어 전송
+  // work_mode 명령어는 응답 파싱 건너뛰기
+  bool skip = (strstr(ctx->cmd_list[0], "work_mode") != NULL);
   if (!lora_send_command_async(ctx->cmd_list[0], LORA_INIT_TIMEOUT_MS,
-                                lora_init_command_callback, ctx)) {
+                                lora_init_command_callback, ctx, skip)) {
     LOG_ERR("Failed to start LoRa init sequence");
     vPortFree(ctx);
     return false;
@@ -198,8 +204,10 @@ static bool lora_init_p2p_rover_async(lora_init_callback_t callback) {
   LOG_INFO("Starting LoRa P2P ROVER init sequence (%d commands)", ctx->cmd_count);
 
   // 첫 번째 명령어 전송
+  // work_mode 명령어는 응답 파싱 건너뛰기
+  bool skip = (strstr(ctx->cmd_list[0], "work_mode") != NULL);
   if (!lora_send_command_async(ctx->cmd_list[0], LORA_INIT_TIMEOUT_MS,
-                                lora_init_command_callback, ctx)) {
+                                lora_init_command_callback, ctx, skip)) {
     LOG_ERR("Failed to start LoRa init sequence");
     vPortFree(ctx);
     return false;
@@ -338,23 +346,36 @@ static void lora_tx_task(void *pvParameter) {
         continue;
       }
 
-      // 응답 대기 (타임아웃 적용)
-      if (xSemaphoreTake(cmd_req.response_sem, pdMS_TO_TICKS(cmd_req.timeout_ms)) == pdTRUE) {
-        // 응답 수신 완료 (RX Task가 세마포어를 줌)
+      // skip_response이면 응답 파싱 건너뛰고 delay 후 성공 처리
+      if (cmd_req.skip_response) {
+        LOG_INFO("Skipping response check, waiting %d ms", cmd_req.timeout_ms);
+        vTaskDelay(pdMS_TO_TICKS(cmd_req.timeout_ms));
+
+        // 성공으로 처리
         if (cmd_req.is_async) {
-          LOG_INFO("LoRa response received: %s",
-                   cmd_req.async_result ? "OK" : "ERROR");
+          cmd_req.async_result = true;
         } else {
-          LOG_INFO("LoRa response received: %s",
-                   *(cmd_req.result) ? "OK" : "ERROR");
+          *(cmd_req.result) = true;
         }
       } else {
-        // 타임아웃
-        LOG_WARN("LoRa command timeout");
-        if (cmd_req.is_async) {
-          cmd_req.async_result = false;
+        // 응답 대기 (타임아웃 적용)
+        if (xSemaphoreTake(cmd_req.response_sem, pdMS_TO_TICKS(cmd_req.timeout_ms)) == pdTRUE) {
+          // 응답 수신 완료 (RX Task가 세마포어를 줌)
+          if (cmd_req.is_async) {
+            LOG_INFO("LoRa response received: %s",
+                     cmd_req.async_result ? "OK" : "ERROR");
+          } else {
+            LOG_INFO("LoRa response received: %s",
+                     *(cmd_req.result) ? "OK" : "ERROR");
+          }
         } else {
-          *(cmd_req.result) = false;
+          // 타임아웃
+          LOG_WARN("LoRa command timeout");
+          if (cmd_req.is_async) {
+            cmd_req.async_result = false;
+          } else {
+            *(cmd_req.result) = false;
+          }
         }
       }
 
@@ -592,6 +613,7 @@ bool lora_send_command_sync(const char *cmd, uint32_t timeout_ms) {
   lora_cmd_request_t cmd_req = {
       .timeout_ms = timeout_ms,
       .is_async = false,
+      .skip_response = false,
       .response_sem = response_sem,
       .result = &result,
       .callback = NULL,
@@ -622,7 +644,8 @@ bool lora_send_command_sync(const char *cmd, uint32_t timeout_ms) {
 }
 
 bool lora_send_command_async(const char *cmd, uint32_t timeout_ms,
-                              lora_command_callback_t callback, void *user_data) {
+                              lora_command_callback_t callback, void *user_data,
+                              bool skip_response) {
   if (!instance.initialized) {
     LOG_ERR("LoRa not initialized");
     return false;
@@ -644,6 +667,7 @@ bool lora_send_command_async(const char *cmd, uint32_t timeout_ms,
   lora_cmd_request_t cmd_req = {
       .timeout_ms = timeout_ms,
       .is_async = true,
+      .skip_response = skip_response,
       .response_sem = response_sem,
       .result = NULL,
       .callback = callback,
