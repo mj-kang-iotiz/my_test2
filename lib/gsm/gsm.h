@@ -259,6 +259,7 @@ typedef void (*tcp_close_callback_t)(uint8_t connect_id);
 typedef enum {
   TCP_EVT_RECV_NOTIFY = 0, ///< +QIURC: "recv" 수신 알림
   TCP_EVT_CLOSED_NOTIFY,   ///< +QIURC: "closed" 종료 알림
+  TCP_EVT_CONTINUE_READ,   ///< EC25 버퍼 드레인 계속 (QIURC 방지용)
 } tcp_event_type_t;
 
 // TCP 이벤트 구조체

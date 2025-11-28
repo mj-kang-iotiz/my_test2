@@ -1123,8 +1123,9 @@ static void tcp_read_complete_callback(gsm_t *gsm, gsm_cmd_t cmd, void *msg,
 
         // ★ EC25 버퍼에 더 데이터가 남아있을 수 있음!
         // 버퍼가 비워질 때까지 계속 읽어야 새로운 QIURC가 발생함
-        // → 즉시 다시 읽기 (AT 명령 큐에 추가)
-        gsm_tcp_read(gsm, cid, 1460, tcp_read_complete_callback);
+        // → TCP 이벤트 큐에 CONTINUE_READ 추가 (AT 명령 큐 오버플로우 방지)
+        tcp_event_t evt = {.type = TCP_EVT_CONTINUE_READ, .connect_id = cid};
+        xQueueSend(gsm->tcp.event_queue, &evt, 0);
         return;
       }
     }
@@ -1151,6 +1152,15 @@ static void gsm_tcp_task(void *arg) {
       case TCP_EVT_RECV_NOTIFY: {
         // ✅ QIURC 메시지로 인한 즉시 수신
         // ✅ 비동기 콜백 사용 (데드락 방지)
+        if (evt.connect_id < GSM_TCP_MAX_SOCKETS) {
+          gsm_tcp_read(gsm, evt.connect_id, 1460, tcp_read_complete_callback);
+        }
+        break;
+      }
+
+      case TCP_EVT_CONTINUE_READ: {
+        // ✅ EC25 버퍼 드레인 계속 (QIURC 방지)
+        // 콜백에서 데이터를 읽은 후, 버퍼에 더 데이터가 있을 수 있으므로 계속 읽음
         if (evt.connect_id < GSM_TCP_MAX_SOCKETS) {
           gsm_tcp_read(gsm, evt.connect_id, 1460, tcp_read_complete_callback);
         }
