@@ -8,8 +8,6 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#define TAG "GSM"
-
 #define GSM_PAYLOAD_SIZE 128
 #define GSM_AT_CMD_PARAM_SIZE 64
 

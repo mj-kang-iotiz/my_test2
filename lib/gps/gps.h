@@ -1,10 +1,6 @@
 #ifndef GPS_H
 #define GPS_H
 
-#ifndef TAG
-#define TAG "GPS"
-#endif
-
 #include "FreeRTOS.h"
 #include "gps_types.h"
 #include "gps_nmea.h"

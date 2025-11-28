@@ -1,4 +1,9 @@
 #include "gsm.h"
+
+#ifndef TAG
+#define TAG "GSM"
+#endif
+
 #include "log.h"
 #include "parser.h" // parser.c 함수 사용
 #include "stm32f4xx_hal.h"
