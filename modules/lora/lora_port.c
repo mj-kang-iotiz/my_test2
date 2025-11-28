@@ -151,11 +151,21 @@ static const lora_hal_ops_t lora_uart3_ops = {
 void USART3_IRQHandler(void) {
     /* USER CODE BEGIN USART3_IRQn 0 */
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+  static uint32_t irq_count = 0;
 
   if (LL_USART_IsActiveFlag_IDLE(LORA_PORT_UART)) {
+    irq_count++;
+    // 디버깅: 인터럽트 발생 확인
+    // LOG는 ISR에서 사용 불가, 카운터만 증가
+
     if (lora_queues[0] != NULL) {
       uint8_t dummy = 0;
       xQueueSendFromISR(lora_queues[0], &dummy, &xHigherPriorityTaskWoken);
+    } else {
+      // 큐가 NULL이면 데이터 유실!
+      // 이 경우를 추적하기 위해 카운터 증가
+      volatile static uint32_t queue_null_count = 0;
+      queue_null_count++;
     }
     LL_USART_ClearFlag_IDLE(LORA_PORT_UART);
   }
@@ -266,4 +276,9 @@ char *lora_port_get_recv_buf()
 
 void lora_port_set_queue(QueueHandle_t queue) {
     lora_queues[0] = queue;
+
+#ifndef TAG
+    #define TAG "LORA_PORT"
+#endif
+    LOG_INFO("lora_port_set_queue: queue=%p", queue);
 }

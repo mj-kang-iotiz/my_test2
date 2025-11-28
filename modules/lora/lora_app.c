@@ -405,8 +405,12 @@ static void lora_process_task(void *pvParameter) {
   while (1) {
     xQueueReceive(instance.queue, &dummy, portMAX_DELAY);
 
+    LOG_INFO("RX: Queue signal received");
+
     pos = lora_port_get_rx_pos();
     char *lora_recv = lora_port_get_recv_buf();
+
+    LOG_INFO("RX: pos=%d, old_pos=%d", pos, old_pos);
 
     if (pos != old_pos) {
       size_t len = 0;
