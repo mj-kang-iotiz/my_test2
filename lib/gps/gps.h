@@ -56,6 +56,7 @@ typedef struct gps_s {
   gps_unicore_bin_parser_t unicore_bin;
   struct {
     uint16_t msg_len;      // RTCM 메시지 길이 (10비트)
+    uint16_t msg_type;     // RTCM 메시지 타입 (12비트)
     uint16_t payload_cnt;  // 현재까지 받은 페이로드 바이트 수
     uint16_t total_len;    // 전체 패킷 길이 (헤더 3 + 페이로드 + CRC 3)
   } rtcm;

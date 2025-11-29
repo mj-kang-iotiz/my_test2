@@ -98,6 +98,9 @@ typedef union {
   struct {
     uint8_t response;
   } unicore;
+  struct {
+    uint16_t msg_type;
+  } rtcm;
 } gps_msg_t;
 
 #endif

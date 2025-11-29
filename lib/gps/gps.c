@@ -342,12 +342,22 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
       else if (gps->state == GPS_PARSE_STATE_RTCM_PAYLOAD) {
         gps->rtcm.payload_cnt++;
 
+        // 메시지 타입 파싱 (페이로드의 첫 12비트)
+        if (gps->rtcm.payload_cnt == 1) {
+          // 첫 번째 페이로드 바이트: msg_type 상위 8비트
+          gps->rtcm.msg_type = (*d) << 4;
+        }
+        else if (gps->rtcm.payload_cnt == 2) {
+          // 두 번째 페이로드 바이트: msg_type 하위 4비트
+          gps->rtcm.msg_type |= ((*d) >> 4) & 0x0F;
+        }
+
         // 페이로드 + CRC까지 모두 받았는지 확인
         // pos는 0부터 시작하므로, 전체 길이-1과 비교
         if (gps->pos >= gps->rtcm.total_len - 1) {
           // RTCM 패킷 완료
           gps_msg_t msg;
-          msg.nmea = GPS_NMEA_MSG_NONE;  // RTCM은 msg_type 없음
+          msg.rtcm.msg_type = gps->rtcm.msg_type;
 
           if (gps->handler) {
             gps->handler(gps, GPS_EVENT_DATA_PARSED, GPS_PROTOCOL_RTCM, msg);
