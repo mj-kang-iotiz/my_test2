@@ -155,7 +155,7 @@ void gps_init(gps_t *gps) {
  * @param[in] len
  */
 void gps_parse_process(gps_t *gps, const void *data, size_t len) {
-  const uint8_t *d = data;
+  const volatile uint8_t *d = data;
 
   for (; len > 0; ++d, --len) {
     /* @TODO GPS_PROTOCOL_NONE 일때 start 문자 찾는걸 만들고, 프로토콜에 따라
@@ -198,8 +198,41 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
         gps->protocol = GPS_PROTOCOL_UNICORE_BIN;
         gps->state = GPS_PARSE_STATE_UNICORE_SYNC3;
       }
+      /* RTCM3 */
+      else if(*d == 0xD3 && gps->state == GPS_PARSE_STATE_NONE) {
+        memset(&gps->rtcm, 0, sizeof(gps->rtcm));
+        memset(gps->payload, 0, sizeof(gps->payload));
+        gps->pos = 0;
+        add_payload(gps, *d);
+        gps->protocol = GPS_PROTOCOL_RTCM;
+        gps->state = GPS_PARSE_STATE_RTCM_PREAMBLE;
+      }
       else {
         gps->state = GPS_PARSE_STATE_NONE;
+
+        if (*d == '$') {
+          memset(gps->nmea.term_str, 0, sizeof(gps->nmea.term_str));
+          gps->nmea.term_pos = 0;
+          gps->nmea.term_num = 0;
+          memset(&gps->nmea, 0, sizeof(gps->nmea));
+          gps->protocol = GPS_PROTOCOL_NMEA;
+          gps->state = GPS_PARSE_STATE_NMEA_START;
+        } else if (*d == 0xD3) {
+          memset(&gps->rtcm, 0, sizeof(gps->rtcm));
+          memset(gps->payload, 0, sizeof(gps->payload));
+          gps->pos = 0;
+          add_payload(gps, *d);
+          gps->protocol = GPS_PROTOCOL_RTCM;
+          gps->state = GPS_PARSE_STATE_RTCM_PREAMBLE;
+        }else if (*d == 0xB5) {
+          gps->state = GPS_PARSE_STATE_UBX_SYNC_1;
+          memset(gps->payload, 0, sizeof(gps->payload));
+        } else if (*d == 0xAA) {
+          gps->state = GPS_PARSE_STATE_UNICORE_SYNC1;
+          memset(gps->payload, 0, sizeof(gps->payload));
+          gps->pos = 0;
+          add_payload(gps, *d);
+        }
       }
     } 
     else if (gps->protocol == GPS_PROTOCOL_NMEA) {
@@ -309,6 +342,49 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
     {
       add_payload(gps, *d);
       gps_parse_unicore_bin(gps);
+    }
+    else if (gps->protocol == GPS_PROTOCOL_RTCM) {
+      add_payload(gps, *d);
+      if (gps->state == GPS_PARSE_STATE_RTCM_PREAMBLE) {
+        // 프리앰블 이미 받음, 다음은 길이 필드 1바이트
+    	gps->rtcm.msg_len = (*d & 0x03) << 8;
+        gps->state = GPS_PARSE_STATE_RTCM_LEN_1;
+      }
+      else if (gps->state == GPS_PARSE_STATE_RTCM_LEN_1) {
+        // 첫 번째 길이 바이트 (reserved 6비트 + 길이 상위 4비트)
+        gps->rtcm.msg_len |= *d;
+        gps->rtcm.total_len = 3 + gps->rtcm.msg_len + 3;  // 헤더(3) + 페이로드 + CRC(3)
+        gps->rtcm.payload_cnt = 0;
+        gps->state = GPS_PARSE_STATE_RTCM_PAYLOAD;
+      }
+      else if (gps->state == GPS_PARSE_STATE_RTCM_PAYLOAD) {
+        gps->rtcm.payload_cnt++;
+// 메시지 타입 파싱 (페이로드의 첫 12비트)
+        if (gps->rtcm.payload_cnt == 1) {
+          // 첫 번째 페이로드 바이트: msg_type 상위 8비트
+          gps->rtcm.msg_type = (*d) << 4;
+        }
+        else if (gps->rtcm.payload_cnt == 2) {
+          // 두 번째 페이로드 바이트: msg_type 하위 4비트
+          gps->rtcm.msg_type |= ((*d) >> 4) & 0x0F;
+        }
+
+        // 페이로드 + CRC까지 모두 받았는지 확인
+        // pos는 0부터 시작하므로, 전체 길이-1과 비교
+        if (gps->pos >= gps->rtcm.total_len - 1) {
+          // RTCM 패킷 완료
+          gps_msg_t msg;
+          msg.rtcm.msg_type = gps->rtcm.msg_type;
+          if (gps->handler) {
+            gps->handler(gps, GPS_EVENT_DATA_PARSED, GPS_PROTOCOL_RTCM, msg);
+          }
+          // 파싱 완료, 상태 초기화
+          memset(&gps->rtcm, 0, sizeof(gps->rtcm));
+          memset(gps->payload, 0, sizeof(gps->payload));
+          gps->protocol = GPS_PROTOCOL_NONE;
+          gps->state = GPS_PARSE_STATE_NONE;
+        }
+      }
     }
   }
 }

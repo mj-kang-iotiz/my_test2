@@ -96,9 +96,15 @@ void initThread(void *pvParameter) {
   led_init();
   led_set_color(3, LED_COLOR_RED);
   led_set_state(3, true);
-//  gps_init_all();
-//  gsm_task_create(NULL);
+  gps_init_all();
+  gsm_task_create(NULL);
   lora_instance_init();
+//  lora_start_tx_test();
+
+//  lora_uart3_hw_init();
+//  lora_uart3_comm_start();
+//  lora_uart3_send("at+help\r\n", 9);
+//  HAL_Delay(10000);
   vTaskDelete(NULL);
 }
 
@@ -128,8 +134,6 @@ int main(void) {
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-  SEGGER_SYSVIEW_DisableEvents(SYSVIEW_EVTMASK_ISR_ENTER |
-                               SYSVIEW_EVTMASK_ISR_EXIT);
 
   traceSTART();
   /* USER CODE END SysInit */
