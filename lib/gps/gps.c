@@ -155,7 +155,7 @@ void gps_init(gps_t *gps) {
  * @param[in] len
  */
 void gps_parse_process(gps_t *gps, const void *data, size_t len) {
-  const volatile uint8_t *d = data;
+  const uint8_t *d = data;
 
   for (; len > 0; ++d, --len) {
     /* @TODO GPS_PROTOCOL_NONE 일때 start 문자 찾는걸 만들고, 프로토콜에 따라
