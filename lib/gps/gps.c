@@ -214,7 +214,7 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
         // sync 실패 또는 알 수 없는 바이트 - state 리셋
         gps->state = GPS_PARSE_STATE_NONE;
 
-        // 현재 바이트가 싱글바이트 프로토콜인지 체크 (바이트 손실 방지)
+        // 현재 바이트가 프로토콜 시작 바이트인지 체크 (바이트 손실 방지)
         if (*d == '$') {
           memset(gps->nmea.term_str, 0, sizeof(gps->nmea.term_str));
           gps->nmea.term_pos = 0;
@@ -229,8 +229,14 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
           add_payload(gps, *d);
           gps->protocol = GPS_PROTOCOL_RTCM;
           gps->state = GPS_PARSE_STATE_RTCM_PREAMBLE;
+        } else if (*d == 0xB5) {
+          gps->state = GPS_PARSE_STATE_UBX_SYNC_1;
+        } else if (*d == 0xAA) {
+          gps->state = GPS_PARSE_STATE_UNICORE_SYNC1;
+          memset(gps->payload, 0, sizeof(gps->payload));
+          gps->pos = 0;
+          add_payload(gps, *d);
         }
-        // 멀티바이트 프로토콜(0xB5, 0xAA)은 다음 루프에서 자동 감지됨
       }
     } 
     else if (gps->protocol == GPS_PROTOCOL_NMEA) {
