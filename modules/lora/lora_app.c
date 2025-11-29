@@ -76,6 +76,7 @@ typedef struct
     TaskHandle_t tx_task;          // TX Task
     SemaphoreHandle_t mutex;       // UART 송신 보호용 mutex
     bool initialized;
+    bool init_complete;            // 초기화 완료 플래그
 
     lora_cmd_request_t *current_cmd_req;  // 현재 처리 중인 명령어
     lora_p2p_recv_callback_t p2p_recv_callback;  // P2P 수신 콜백
@@ -98,6 +99,12 @@ static void lora_overall_init_complete(bool success, void *user_data) {
 #else
   LOG_INFO("LoRa UNKNOWN MODE init %s", success ? "succeeded" : "failed");
 #endif
+
+  // 초기화 완료 플래그 설정
+  if (success) {
+    instance.init_complete = true;
+    LOG_INFO("LoRa init complete - now accepting P2P data");
+  }
 }
 
 /**
@@ -474,7 +481,8 @@ static void lora_process_task(void *pvParameter) {
         }
 
         // P2P 수신 데이터 처리 (at+recv=...)
-        if (strstr(temp_buf, "at+recv=") || strstr(temp_buf, "AT+RECV=")) {
+        // 초기화 완료 후에만 처리 (초기화 중 데이터는 무시)
+        if ((strstr(temp_buf, "at+recv=") || strstr(temp_buf, "AT+RECV=")) && instance.init_complete) {
           lora_p2p_recv_data_t recv_data;
 
           if (lora_parse_p2p_recv(temp_buf, &recv_data)) {
@@ -493,6 +501,8 @@ static void lora_process_task(void *pvParameter) {
               }
             }
           }
+        } else if ((strstr(temp_buf, "at+recv=") || strstr(temp_buf, "AT+RECV=")) && !instance.init_complete) {
+          LOG_WARN("Ignoring P2P data during initialization");
         }
 
         old_pos = pos;
@@ -523,7 +533,9 @@ static void lora_process_task(void *pvParameter) {
           }
         }
 
-        if (strstr(temp_buf, "at+recv=") || strstr(temp_buf, "AT+RECV=")) {
+        // P2P 수신 데이터 처리 (wrap-around)
+        // 초기화 완료 후에만 처리
+        if ((strstr(temp_buf, "at+recv=") || strstr(temp_buf, "AT+RECV=")) && instance.init_complete) {
           lora_p2p_recv_data_t recv_data;
 
           if (lora_parse_p2p_recv(temp_buf, &recv_data)) {
@@ -540,6 +552,8 @@ static void lora_process_task(void *pvParameter) {
               }
             }
           }
+        } else if ((strstr(temp_buf, "at+recv=") || strstr(temp_buf, "AT+RECV=")) && !instance.init_complete) {
+          LOG_WARN("Ignoring P2P data during initialization (wrap)");
         }
 
         old_pos = pos;
