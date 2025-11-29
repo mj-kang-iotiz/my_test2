@@ -92,8 +92,24 @@ static int ntrip_connect_to_server(tcp_socket_t *sock) {
       // ICY 200 OK 수신
       ret = tcp_recv(sock, recv_buf, sizeof(recv_buf), 0);
       if (ret > 0) {
-        LOG_INFO("서버 응답 수신 (%d bytes)", ret);
-        return 0; // 연결 성공
+        recv_buf[ret < sizeof(recv_buf) ? ret : sizeof(recv_buf) - 1] = '\0';
+        LOG_INFO("서버 응답 수신 (%d bytes): %.*s", ret, ret > 100 ? 100 : ret, recv_buf);
+
+        // ICY 200 OK 또는 HTTP/1.x 200 OK 확인
+        if (strstr((char *)recv_buf, "ICY 200") != NULL ||
+            strstr((char *)recv_buf, "HTTP/1.0 200") != NULL ||
+            strstr((char *)recv_buf, "HTTP/1.1 200") != NULL) {
+          LOG_INFO("✅ NTRIP 서버 연결 성공 (200 OK)");
+          return 0; // 연결 성공
+        } else {
+          LOG_ERR("❌ 예상치 못한 서버 응답 (200 OK 없음)");
+          tcp_close_force(sock);
+          vTaskDelay(pdMS_TO_TICKS(1000));
+          retry_count++;
+          continue;
+        }
+      } else {
+        LOG_ERR("❌ 서버 응답 수신 실패 (ret=%d)", ret);
       }
     }
 
@@ -197,6 +213,7 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
 
   g_ntrip_connected = true;
   gsm_socket_monitor_start();
+  led_set_color(1, LED_COLOR_GREEN);
 
   // GGA 송신 태스크 생성
   if (g_gga_send_task_handle == NULL) {
@@ -204,24 +221,6 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
                 tskIDLE_PRIORITY + 2, &g_gga_send_task_handle);
     LOG_INFO("GGA 송신 태스크 생성 완료");
   }
-
-  // HTTP 요청 전송 (한 번만)
-  LOG_INFO("NTRIP HTTP 요청 전송");
-  ret = tcp_send(sock, (const uint8_t *)NTRIP_HTTP_REQUEST,
-                 strlen(NTRIP_HTTP_REQUEST));
-  if (ret < 0) {
-    LOG_ERR("HTTP 요청 전송 실패: %d", ret);
-    tcp_close(sock);
-    tcp_socket_destroy(sock);
-    vTaskDelete(NULL);
-    return;
-  }
-
-  LOG_INFO("HTTP 요청 전송 완료 (%d bytes)", ret);
-
-  // ICY 200 OK\r\n\r\n 수신
-  ret = tcp_recv(sock, recv_buf, sizeof(recv_buf), 0);
-  led_set_color(1, LED_COLOR_GREEN);
 
   // 무한 루프: 데이터 수신 (GGA 전송은 별도 태스크에서 처리)
   while (1) {
@@ -263,14 +262,18 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
         vTaskDelay(pdMS_TO_TICKS(NTRIP_RECONNECT_DELAY_MS));
 
         // 재연결 시도
-        if (ntrip_connect_to_server(sock) != 0) {
+        LOG_INFO("🔄 ntrip_connect_to_server() 호출 시작...");
+        int reconnect_result = ntrip_connect_to_server(sock);
+        LOG_INFO("🔄 ntrip_connect_to_server() 결과: %d", reconnect_result);
+
+        if (reconnect_result != 0) {
           reconnect_count++;
-          LOG_ERR("재연결 실패 (%d회)", reconnect_count);
+          LOG_ERR("❌ 재연결 실패 (%d회) - 서버 연결 또는 ICY 200 OK 수신 실패", reconnect_count);
 
           // 재연결 실패 시 더 긴 대기
           vTaskDelay(pdMS_TO_TICKS(NTRIP_RECONNECT_DELAY_MS * 2));
         } else {
-          LOG_INFO("재연결 성공");
+          LOG_INFO("✅ 재연결 성공 (타임아웃 복구)");
           led_set_color(1, LED_COLOR_GREEN);
           timeout_count = 0; // 타임아웃 카운터 리셋
 
@@ -312,12 +315,16 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
       tcp_close_force(sock);
       vTaskDelay(pdMS_TO_TICKS(NTRIP_RECONNECT_DELAY_MS));
 
-      if (ntrip_connect_to_server(sock) != 0) {
+      LOG_INFO("🔄 ntrip_connect_to_server() 호출 시작...");
+      int reconnect_result = ntrip_connect_to_server(sock);
+      LOG_INFO("🔄 ntrip_connect_to_server() 결과: %d", reconnect_result);
+
+      if (reconnect_result != 0) {
         reconnect_count++;
-        LOG_ERR("재연결 실패 (%d회)", reconnect_count);
+        LOG_ERR("❌ 재연결 실패 (%d회) - 서버 연결 또는 ICY 200 OK 수신 실패", reconnect_count);
         vTaskDelay(pdMS_TO_TICKS(NTRIP_RECONNECT_DELAY_MS * 2));
       } else {
-        LOG_INFO("재연결 성공");
+        LOG_INFO("✅ 재연결 성공 (에러 복구)");
         timeout_count = 0;
         led_set_color(1, LED_COLOR_GREEN);
 
