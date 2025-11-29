@@ -15,6 +15,17 @@
 
 #include "log.h"
 
+// 컴파일 타임 LORA_MODE 확인용
+#if LORA_MODE == LORA_MODE_BASE
+#pragma message "COMPILE: LORA_MODE = LORA_MODE_BASE"
+#elif LORA_MODE == LORA_MODE_ROVER
+#pragma message "COMPILE: LORA_MODE = LORA_MODE_ROVER"
+#elif LORA_MODE == LORA_MODE_NONE
+#pragma message "COMPILE: LORA_MODE = LORA_MODE_NONE"
+#else
+#pragma message "COMPILE: LORA_MODE = UNKNOWN"
+#endif
+
 #define LORA_CMD_QUEUE_SIZE 10
 #define LORA_AT_CMD_TIMEOUT_MS 2000
 #define LORA_INIT_MAX_RETRY 3
