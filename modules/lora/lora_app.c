@@ -498,10 +498,10 @@ static void lora_process_task(void *pvParameter) {
         old_pos = pos;
       } else {
         // Circular buffer wrap-around
-        len = sizeof(lora_recv) - old_pos + pos;
+        len = LORA_RECV_BUF_SIZE - old_pos + pos;
 
         char temp_buf[1024];
-        size_t first_part = sizeof(lora_recv) - old_pos;
+        size_t first_part = LORA_RECV_BUF_SIZE - old_pos;
         memcpy(temp_buf, &lora_recv[old_pos], first_part);
         memcpy(&temp_buf[first_part], &lora_recv[0], pos);
         temp_buf[len] = '\0';
