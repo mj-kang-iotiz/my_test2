@@ -157,6 +157,7 @@ void gps_init(gps_t *gps) {
 void gps_parse_process(gps_t *gps, const void *data, size_t len) {
   const uint8_t *d = data;
   static uint32_t nmea_start_count = 0;
+  static uint32_t rtcm_skip_count = 0;
 
   for (; len > 0; ++d, --len) {
     /* @TODO GPS_PROTOCOL_NONE 일때 start 문자 찾는걸 만들고, 프로토콜에 따라
@@ -174,11 +175,21 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
 
         gps->protocol = GPS_PROTOCOL_NMEA;
         gps->state = GPS_PARSE_STATE_NMEA_START;
-      } 
+      }
+      /* RTCM3 데이터 무시 (0xD3로 시작) */
+      else if (*d == 0xD3 && gps->state == GPS_PARSE_STATE_NONE) {
+        rtcm_skip_count++;
+        if (rtcm_skip_count % 50 == 1) {  // 처음과 50번마다 로그
+          LOG_WARN("⚠️ RTCM3 데이터 감지 (0xD3) - 무시함 (count=%lu)", rtcm_skip_count);
+        }
+        gps->state = GPS_PARSE_STATE_NONE;
+        // RTCM 데이터는 무시하고 다음 바이트로 진행
+        continue;
+      }
       /* UBX binary */
       else if (*d == 0xB5 && gps->state == GPS_PARSE_STATE_NONE) {
         gps->state = GPS_PARSE_STATE_UBX_SYNC_1;
-      } 
+      }
       else if (*d == 0x62 && gps->state == GPS_PARSE_STATE_UBX_SYNC_1) {
         memset(gps->payload, 0, sizeof(gps->payload));
         memset(&gps->ubx, 0, sizeof(gps->ubx));
@@ -186,7 +197,7 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
 
         gps->protocol = GPS_PROTOCOL_UBX;
         gps->state = GPS_PARSE_STATE_UBX_SYNC_2;
-      } 
+      }
       /* UNICORE binary */
       else if(*d == 0xAA && gps->state == GPS_PARSE_STATE_NONE) {
         gps->state = GPS_PARSE_STATE_UNICORE_SYNC1;
