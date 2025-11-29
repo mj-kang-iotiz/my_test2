@@ -393,8 +393,16 @@ void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
       }
 
       if (gps->nmea_data.gga_is_rdy) {
-        ntrip_send_gga_data(gps->nmea_data.gga_raw,
+        LOG_INFO("📡 GGA 파싱 완료, NTRIP 전송 시도 (%d bytes)", gps->nmea_data.gga_raw_pos);
+        int ret = ntrip_send_gga_data(gps->nmea_data.gga_raw,
                            gps->nmea_data.gga_raw_pos);
+        if (ret > 0) {
+          LOG_INFO("✅ GGA NTRIP 큐 추가 성공");
+        } else {
+          LOG_WARN("❌ GGA NTRIP 큐 추가 실패: %d", ret);
+        }
+      } else {
+        LOG_DEBUG("GGA not ready (gga_is_rdy=%d)", gps->nmea_data.gga_is_rdy);
       }
     }
     break;

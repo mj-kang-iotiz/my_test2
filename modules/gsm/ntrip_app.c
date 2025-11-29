@@ -144,21 +144,23 @@ static void ntrip_gga_send_task(void *pvParameter) {
   while (1) {
     // GGA 큐에서 블로킹 대기 (데이터 도착 즉시 깨어남)
     if (xQueueReceive(g_gga_send_queue, &gga_item, portMAX_DELAY) == pdTRUE) {
+      LOG_INFO("📨 GGA 큐에서 데이터 수신 (%d bytes)", gga_item.len);
 
       // 연결 상태 확인
       if (!g_ntrip_connected) {
-        LOG_DEBUG("NTRIP 연결 안 됨, GGA 전송 스킵");
+        LOG_WARN("⚠️ NTRIP 연결 안 됨 (g_ntrip_connected=false), GGA 전송 스킵");
         continue;
       }
 
       // GGA 전송
+      LOG_INFO("📤 소켓으로 GGA 전송 시도...");
       int ret = tcp_send(sock, (const uint8_t *)gga_item.data, gga_item.len);
 
       if (ret > 0) {
-        LOG_INFO("GGA 전송 완료 (%d bytes): %.*s",
-                 gga_item.len, gga_item.len, gga_item.data);
+        LOG_INFO("✅ GGA 전송 완료 (%d bytes): %.*s",
+                 gga_item.len, gga_item.len > 80 ? 80 : gga_item.len, gga_item.data);
       } else {
-        LOG_WARN("GGA 전송 실패: %d", ret);
+        LOG_WARN("❌ GGA 전송 실패: %d", ret);
         // 전송 실패해도 계속 진행 (다음 GGA는 다시 시도)
         // 연결이 끊어진 경우 수신 태스크에서 재연결 처리
       }
