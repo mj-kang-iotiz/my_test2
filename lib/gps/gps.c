@@ -348,11 +348,14 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
       if (gps->state == GPS_PARSE_STATE_RTCM_PREAMBLE) {
         // 프리앰블 이미 받음, 다음은 길이 필드 1바이트
     	gps->rtcm.msg_len = (*d & 0x03) << 8;
+        LOG_DEBUG("RTCM Byte1: 0x%02X, msg_len after MSB: %u", *d, gps->rtcm.msg_len);
         gps->state = GPS_PARSE_STATE_RTCM_LEN_1;
       }
       else if (gps->state == GPS_PARSE_STATE_RTCM_LEN_1) {
         // 첫 번째 길이 바이트 (reserved 6비트 + 길이 상위 4비트)
         gps->rtcm.msg_len |= *d;
+        LOG_DEBUG("RTCM Byte2: 0x%02X, msg_len final: %u, total_len: %u",
+                  *d, gps->rtcm.msg_len, 3 + gps->rtcm.msg_len + 3);
         gps->rtcm.total_len = 3 + gps->rtcm.msg_len + 3;  // 헤더(3) + 페이로드 + CRC(3)
         gps->rtcm.payload_cnt = 0;
         gps->state = GPS_PARSE_STATE_RTCM_PAYLOAD;
