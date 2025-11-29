@@ -173,7 +173,7 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
       /* UBX binary */
       else if (*d == 0xB5 && gps->state == GPS_PARSE_STATE_NONE) {
         gps->state = GPS_PARSE_STATE_UBX_SYNC_1;
-      } 
+      }
       else if (*d == 0x62 && gps->state == GPS_PARSE_STATE_UBX_SYNC_1) {
         memset(gps->payload, 0, sizeof(gps->payload));
         memset(&gps->ubx, 0, sizeof(gps->ubx));
@@ -181,22 +181,95 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
 
         gps->protocol = GPS_PROTOCOL_UBX;
         gps->state = GPS_PARSE_STATE_UBX_SYNC_2;
-      } 
+      }
+      /* UBX sync1 실패 → 현재 바이트로 다른 프로토콜 재시도 */
+      else if (gps->state == GPS_PARSE_STATE_UBX_SYNC_1) {
+        gps->state = GPS_PARSE_STATE_NONE;
+        if (*d == '$') {
+          memset(gps->nmea.term_str, 0, sizeof(gps->nmea.term_str));
+          gps->nmea.term_pos = 0;
+          gps->nmea.term_num = 0;
+          memset(&gps->nmea, 0, sizeof(gps->nmea));
+          gps->protocol = GPS_PROTOCOL_NMEA;
+          gps->state = GPS_PARSE_STATE_NMEA_START;
+        } else if (*d == 0xD3) {
+          memset(&gps->rtcm, 0, sizeof(gps->rtcm));
+          memset(gps->payload, 0, sizeof(gps->payload));
+          gps->pos = 0;
+          add_payload(gps, *d);
+          gps->protocol = GPS_PROTOCOL_RTCM;
+          gps->state = GPS_PARSE_STATE_RTCM_PREAMBLE;
+        } else if (*d == 0xAA) {
+          gps->state = GPS_PARSE_STATE_UNICORE_SYNC1;
+          memset(gps->payload, 0, sizeof(gps->payload));
+          gps->pos = 0;
+          add_payload(gps, *d);
+        }
+      }
       /* UNICORE binary */
       else if(*d == 0xAA && gps->state == GPS_PARSE_STATE_NONE) {
         gps->state = GPS_PARSE_STATE_UNICORE_SYNC1;
         memset(gps->payload, 0, sizeof(gps->payload));
         gps->pos = 0;
         add_payload(gps, *d);
-      } else if(*d == 0x44 && gps->state == GPS_PARSE_STATE_UNICORE_SYNC1) {
+      }
+      else if(*d == 0x44 && gps->state == GPS_PARSE_STATE_UNICORE_SYNC1) {
         gps->state = GPS_PARSE_STATE_UNICORE_SYNC2;
         add_payload(gps, *d);
-      } else if(*d == 0xB5 && gps->state == GPS_PARSE_STATE_UNICORE_SYNC2) {
+      }
+      /* UNICORE sync1 실패 → 현재 바이트로 다른 프로토콜 재시도 */
+      else if (gps->state == GPS_PARSE_STATE_UNICORE_SYNC1) {
+        gps->state = GPS_PARSE_STATE_NONE;
+        if (*d == '$') {
+          memset(gps->nmea.term_str, 0, sizeof(gps->nmea.term_str));
+          gps->nmea.term_pos = 0;
+          gps->nmea.term_num = 0;
+          memset(&gps->nmea, 0, sizeof(gps->nmea));
+          gps->protocol = GPS_PROTOCOL_NMEA;
+          gps->state = GPS_PARSE_STATE_NMEA_START;
+        } else if (*d == 0xD3) {
+          memset(&gps->rtcm, 0, sizeof(gps->rtcm));
+          memset(gps->payload, 0, sizeof(gps->payload));
+          gps->pos = 0;
+          add_payload(gps, *d);
+          gps->protocol = GPS_PROTOCOL_RTCM;
+          gps->state = GPS_PARSE_STATE_RTCM_PREAMBLE;
+        } else if (*d == 0xB5) {
+          gps->state = GPS_PARSE_STATE_UBX_SYNC_1;
+        }
+      }
+      else if(*d == 0xB5 && gps->state == GPS_PARSE_STATE_UNICORE_SYNC2) {
         memset(&gps->unicore_bin, 0, sizeof(gps->unicore_bin));
         add_payload(gps, *d);
 
         gps->protocol = GPS_PROTOCOL_UNICORE_BIN;
         gps->state = GPS_PARSE_STATE_UNICORE_SYNC3;
+      }
+      /* UNICORE sync2 실패 → 현재 바이트로 다른 프로토콜 재시도 */
+      else if (gps->state == GPS_PARSE_STATE_UNICORE_SYNC2) {
+        gps->state = GPS_PARSE_STATE_NONE;
+        if (*d == '$') {
+          memset(gps->nmea.term_str, 0, sizeof(gps->nmea.term_str));
+          gps->nmea.term_pos = 0;
+          gps->nmea.term_num = 0;
+          memset(&gps->nmea, 0, sizeof(gps->nmea));
+          gps->protocol = GPS_PROTOCOL_NMEA;
+          gps->state = GPS_PARSE_STATE_NMEA_START;
+        } else if (*d == 0xD3) {
+          memset(&gps->rtcm, 0, sizeof(gps->rtcm));
+          memset(gps->payload, 0, sizeof(gps->payload));
+          gps->pos = 0;
+          add_payload(gps, *d);
+          gps->protocol = GPS_PROTOCOL_RTCM;
+          gps->state = GPS_PARSE_STATE_RTCM_PREAMBLE;
+        } else if (*d == 0xB5) {
+          gps->state = GPS_PARSE_STATE_UBX_SYNC_1;
+        } else if (*d == 0xAA) {
+          gps->state = GPS_PARSE_STATE_UNICORE_SYNC1;
+          memset(gps->payload, 0, sizeof(gps->payload));
+          gps->pos = 0;
+          add_payload(gps, *d);
+        }
       }
       /* RTCM3 */
       else if(*d == 0xD3 && gps->state == GPS_PARSE_STATE_NONE) {
@@ -209,37 +282,8 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
         gps->state = GPS_PARSE_STATE_RTCM_PREAMBLE;
       }
       else {
-        // 잘못된 시퀀스, state 리셋하고 현재 바이트가 새로운 프로토콜 시작인지 확인
+        // 알 수 없는 바이트, state 리셋
         gps->state = GPS_PARSE_STATE_NONE;
-
-        // 현재 바이트가 다른 프로토콜의 시작 바이트인지 재확인
-        if (*d == '$') {
-          memset(gps->nmea.term_str, 0, sizeof(gps->nmea.term_str));
-          gps->nmea.term_pos = 0;
-          gps->nmea.term_num = 0;
-          memset(&gps->nmea, 0, sizeof(gps->nmea));
-
-          gps->protocol = GPS_PROTOCOL_NMEA;
-          gps->state = GPS_PARSE_STATE_NMEA_START;
-        }
-        else if (*d == 0xB5) {
-          gps->state = GPS_PARSE_STATE_UBX_SYNC_1;
-        }
-        else if (*d == 0xAA) {
-          gps->state = GPS_PARSE_STATE_UNICORE_SYNC1;
-          memset(gps->payload, 0, sizeof(gps->payload));
-          gps->pos = 0;
-          add_payload(gps, *d);
-        }
-        else if (*d == 0xD3) {
-          memset(&gps->rtcm, 0, sizeof(gps->rtcm));
-          memset(gps->payload, 0, sizeof(gps->payload));
-          gps->pos = 0;
-          add_payload(gps, *d);
-
-          gps->protocol = GPS_PROTOCOL_RTCM;
-          gps->state = GPS_PARSE_STATE_RTCM_PREAMBLE;
-        }
       }
     } 
     else if (gps->protocol == GPS_PROTOCOL_NMEA) {
