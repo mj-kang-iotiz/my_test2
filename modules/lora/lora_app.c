@@ -88,10 +88,15 @@ static lora_app_instance_t instance;
  * @brief LoRa 초기화 완료 콜백
  */
 static void lora_overall_init_complete(bool success, void *user_data) {
+  // 런타임 LORA_MODE 값 확인
+  LOG_INFO("LORA_MODE value: %d (BASE=1, ROVER=2)", LORA_MODE);
+
 #if LORA_MODE == LORA_MODE_BASE
   LOG_INFO("LoRa BASE init %s", success ? "succeeded" : "failed");
 #elif LORA_MODE == LORA_MODE_ROVER
   LOG_INFO("LoRa ROVER init %s", success ? "succeeded" : "failed");
+#else
+  LOG_INFO("LoRa UNKNOWN MODE init %s", success ? "succeeded" : "failed");
 #endif
 }
 
