@@ -98,7 +98,7 @@ void initThread(void *pvParameter) {
   led_set_state(3, true);
   gps_init_all();
   gsm_task_create(NULL);
-  lora_instance_init();
+//  lora_instance_init();
 //  lora_start_tx_test();
 
 //  lora_uart3_hw_init();

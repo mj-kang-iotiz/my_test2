@@ -155,7 +155,7 @@ void gps_init(gps_t *gps) {
  * @param[in] len
  */
 void gps_parse_process(gps_t *gps, const void *data, size_t len) {
-  const volatile uint8_t *d = data;
+  const uint8_t *d = data;
 
   for (; len > 0; ++d, --len) {
     /* @TODO GPS_PROTOCOL_NONE 일때 start 문자 찾는걸 만들고, 프로토콜에 따라
@@ -200,12 +200,14 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
       }
       /* RTCM3 */
       else if(*d == 0xD3 && gps->state == GPS_PARSE_STATE_NONE) {
+    	  printf("d - data = %ld  %u\n", d - (uint8_t*)data, *d);
         memset(&gps->rtcm, 0, sizeof(gps->rtcm));
         memset(gps->payload, 0, sizeof(gps->payload));
         gps->pos = 0;
         add_payload(gps, *d);
         gps->protocol = GPS_PROTOCOL_RTCM;
         gps->state = GPS_PARSE_STATE_RTCM_PREAMBLE;
+        printf("d - data = %ld\n", d - (uint8_t*)data);
       }
       else {
         gps->state = GPS_PARSE_STATE_NONE;
@@ -345,6 +347,7 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
     }
     else if (gps->protocol == GPS_PROTOCOL_RTCM) {
       add_payload(gps, *d);
+      printf("d - data = %ld  %u\n", d - (uint8_t*)data, *d);
       if (gps->state == GPS_PARSE_STATE_RTCM_PREAMBLE) {
         // 프리앰블 이미 받음, 다음은 길이 필드 1바이트
     	gps->rtcm.msg_len = (*d & 0x03) << 8;
