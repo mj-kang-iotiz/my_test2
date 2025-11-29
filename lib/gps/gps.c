@@ -209,7 +209,37 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
         gps->state = GPS_PARSE_STATE_RTCM_PREAMBLE;
       }
       else {
+        // 잘못된 시퀀스, state 리셋하고 현재 바이트가 새로운 프로토콜 시작인지 확인
         gps->state = GPS_PARSE_STATE_NONE;
+
+        // 현재 바이트가 다른 프로토콜의 시작 바이트인지 재확인
+        if (*d == '$') {
+          memset(gps->nmea.term_str, 0, sizeof(gps->nmea.term_str));
+          gps->nmea.term_pos = 0;
+          gps->nmea.term_num = 0;
+          memset(&gps->nmea, 0, sizeof(gps->nmea));
+
+          gps->protocol = GPS_PROTOCOL_NMEA;
+          gps->state = GPS_PARSE_STATE_NMEA_START;
+        }
+        else if (*d == 0xB5) {
+          gps->state = GPS_PARSE_STATE_UBX_SYNC_1;
+        }
+        else if (*d == 0xAA) {
+          gps->state = GPS_PARSE_STATE_UNICORE_SYNC1;
+          memset(gps->payload, 0, sizeof(gps->payload));
+          gps->pos = 0;
+          add_payload(gps, *d);
+        }
+        else if (*d == 0xD3) {
+          memset(&gps->rtcm, 0, sizeof(gps->rtcm));
+          memset(gps->payload, 0, sizeof(gps->payload));
+          gps->pos = 0;
+          add_payload(gps, *d);
+
+          gps->protocol = GPS_PROTOCOL_RTCM;
+          gps->state = GPS_PARSE_STATE_RTCM_PREAMBLE;
+        }
       }
     } 
     else if (gps->protocol == GPS_PROTOCOL_NMEA) {
