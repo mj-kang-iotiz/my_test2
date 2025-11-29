@@ -532,6 +532,9 @@ static void gps_process_task(void *pvParameter) {
   uint8_t dummy = 0;
   size_t total_received = 0;
 
+  // DMA 버퍼 경쟁 조건 방지를 위한 임시 버퍼
+  static uint8_t temp_buf[GPS_UART_MAX_RECV_SIZE];
+
   gps_set_evt_handler(&inst->gps, gps_evt_handler);
   memset(&inst->gga_avg_data, 0, sizeof(inst->gga_avg_data));
   memset(&inst->ubx_hp_avg, 0, sizeof(ubx_hp_avg_data_t));
@@ -585,18 +588,27 @@ static void gps_process_task(void *pvParameter) {
       if (pos > old_pos) {
         size_t len = pos - old_pos;
         total_received = len;
-        LOG_DEBUG_RAW("RAW: ", &gps_recv[old_pos], len);
-        gps_parse_process(&inst->gps, &gps_recv[old_pos], pos - old_pos);
+
+        // DMA 버퍼에서 임시 버퍼로 복사 (경쟁 조건 방지)
+        memcpy(temp_buf, &gps_recv[old_pos], len);
+
+        LOG_DEBUG_RAW("RAW: ", temp_buf, len);
+        gps_parse_process(&inst->gps, temp_buf, len);
       } else {
         size_t len1 = GPS_UART_MAX_RECV_SIZE - old_pos;
         size_t len2 = pos;
         total_received = len1 + len2;
-        LOG_DEBUG_RAW("RAW: ", &gps_recv[old_pos], len1);
-        gps_parse_process(&inst->gps, &gps_recv[old_pos],
-                          GPS_UART_MAX_RECV_SIZE - old_pos);
+
+        // 첫 번째 청크 복사
+        memcpy(temp_buf, &gps_recv[old_pos], len1);
+        LOG_DEBUG_RAW("RAW: ", temp_buf, len1);
+        gps_parse_process(&inst->gps, temp_buf, len1);
+
         if (pos > 0) {
-          LOG_DEBUG_RAW("RAW: ", gps_recv, len2);
-          gps_parse_process(&inst->gps, gps_recv, pos);
+          // 두 번째 청크 복사
+          memcpy(temp_buf, gps_recv, len2);
+          LOG_DEBUG_RAW("RAW: ", temp_buf, len2);
+          gps_parse_process(&inst->gps, temp_buf, len2);
         }
       }
       old_pos = pos;
