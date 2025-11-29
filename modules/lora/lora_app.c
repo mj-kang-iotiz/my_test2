@@ -21,6 +21,7 @@
 
 static void lora_process_task(void *pvParameter);
 static void lora_tx_task(void *pvParameter);
+static void lora_tx_test_task(void *pvParameter);
 
 /**
  * @brief LoRa P2P BASE 모드 초기화 명령어
@@ -729,4 +730,45 @@ void lora_set_p2p_recv_callback(lora_p2p_recv_callback_t callback, void *user_da
 
 lora_t *lora_get_handle(void) {
   return &instance.lora;
+}
+
+/**
+ * @brief LoRa TX Test Task (10초마다 "hello world\r\n" 전송)
+ */
+static void lora_tx_test_task(void *pvParameter) {
+  // "hello world\r\n"의 HEX 표현
+  const char *test_data = "68656C6C6F20776F726C640D0A";
+
+  LOG_INFO("LoRa TX Test Task started - sending 'hello world\\r\\n' every 10 seconds");
+
+  // 초기화 완료 대기 (5초)
+  vTaskDelay(pdMS_TO_TICKS(5000));
+
+  while (1) {
+    LOG_INFO("Sending test data: hello world\\r\\n");
+
+    if (lora_send_p2p_data(test_data, LORA_AT_CMD_TIMEOUT_MS)) {
+      LOG_INFO("Test data sent successfully");
+    } else {
+      LOG_ERR("Failed to send test data");
+    }
+
+    // 10초 대기
+    vTaskDelay(pdMS_TO_TICKS(10000));
+  }
+
+  vTaskDelete(NULL);
+}
+
+/**
+ * @brief LoRa 송신 테스트 시작
+ */
+void lora_start_tx_test(void) {
+  BaseType_t ret = xTaskCreate(lora_tx_test_task, "lora_tx_test", 512,
+                               NULL, tskIDLE_PRIORITY + 2, NULL);
+  if (ret != pdPASS) {
+    LOG_ERR("Failed to create LoRa TX Test Task");
+  } else {
+    LOG_INFO("LoRa TX Test Task created successfully");
+  }
 }

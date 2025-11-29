@@ -99,6 +99,7 @@ void initThread(void *pvParameter) {
 //  gps_init_all();
 //  gsm_task_create(NULL);
   lora_instance_init();
+  lora_start_tx_test();  // LoRa 송신 테스트 시작
   vTaskDelete(NULL);
 }
 

@@ -153,4 +153,9 @@ void lora_set_p2p_recv_callback(lora_p2p_recv_callback_t callback, void *user_da
  */
 lora_t *lora_get_handle(void);
 
+/**
+ * @brief LoRa 송신 테스트 시작 (10초마다 "hello world\r\n" 전송)
+ */
+void lora_start_tx_test(void);
+
 #endif
