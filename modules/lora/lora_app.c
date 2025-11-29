@@ -728,6 +728,75 @@ void lora_set_p2p_recv_callback(lora_p2p_recv_callback_t callback, void *user_da
   instance.p2p_recv_user_data = user_data;
 }
 
+/**
+ * @brief ASCII 문자열을 HEX 문자열로 변환
+ *
+ * @param ascii ASCII 문자열 (예: "hello")
+ * @param hex 출력 HEX 문자열 버퍼 (예: "68656C6C6F")
+ * @param hex_buf_size HEX 버퍼 크기 (최소 ascii_len * 2 + 1)
+ * @return true: 성공, false: 실패
+ */
+bool lora_ascii_to_hex(const char *ascii, char *hex, size_t hex_buf_size) {
+  if (!ascii || !hex) {
+    return false;
+  }
+
+  size_t ascii_len = strlen(ascii);
+
+  // HEX 버퍼 크기 확인 (각 문자당 2자리 + NULL terminator)
+  if (hex_buf_size < (ascii_len * 2 + 1)) {
+    LOG_ERR("HEX buffer too small: need %d, got %d", ascii_len * 2 + 1, hex_buf_size);
+    return false;
+  }
+
+  // ASCII → HEX 변환
+  for (size_t i = 0; i < ascii_len; i++) {
+    snprintf(&hex[i * 2], 3, "%02X", (unsigned char)ascii[i]);
+  }
+  hex[ascii_len * 2] = '\0';
+
+  return true;
+}
+
+/**
+ * @brief HEX 문자열을 ASCII 문자열로 변환
+ *
+ * @param hex HEX 문자열 (예: "68656C6C6F")
+ * @param ascii 출력 ASCII 문자열 버퍼 (예: "hello")
+ * @param ascii_buf_size ASCII 버퍼 크기 (최소 hex_len / 2 + 1)
+ * @return true: 성공, false: 실패
+ */
+bool lora_hex_to_ascii(const char *hex, char *ascii, size_t ascii_buf_size) {
+  if (!hex || !ascii) {
+    return false;
+  }
+
+  size_t hex_len = strlen(hex);
+
+  // HEX 문자열 길이는 짝수여야 함
+  if (hex_len % 2 != 0) {
+    LOG_ERR("Invalid HEX string length: %d (must be even)", hex_len);
+    return false;
+  }
+
+  size_t ascii_len = hex_len / 2;
+
+  // ASCII 버퍼 크기 확인
+  if (ascii_buf_size < (ascii_len + 1)) {
+    LOG_ERR("ASCII buffer too small: need %d, got %d", ascii_len + 1, ascii_buf_size);
+    return false;
+  }
+
+  // HEX → ASCII 변환
+  for (size_t i = 0; i < ascii_len; i++) {
+    char hex_pair[3] = {hex[i * 2], hex[i * 2 + 1], '\0'};
+    ascii[i] = (char)strtol(hex_pair, NULL, 16);
+  }
+  ascii[ascii_len] = '\0';
+
+  return true;
+}
+
 lora_t *lora_get_handle(void) {
   return &instance.lora;
 }
@@ -736,10 +805,19 @@ lora_t *lora_get_handle(void) {
  * @brief LoRa TX Test Task (10초마다 "hello world\r\n" 전송)
  */
 static void lora_tx_test_task(void *pvParameter) {
-  // "hello world\r\n"의 HEX 표현
-  const char *test_data = "68656C6C6F20776F726C640D0A";
+  const char *ascii_msg = "hello world\r\n";
+  char hex_msg[256];  // HEX 문자열 버퍼
 
   LOG_INFO("LoRa TX Test Task started - sending 'hello world\\r\\n' every 10 seconds");
+
+  // ASCII를 HEX로 변환
+  if (!lora_ascii_to_hex(ascii_msg, hex_msg, sizeof(hex_msg))) {
+    LOG_ERR("Failed to convert ASCII to HEX");
+    vTaskDelete(NULL);
+    return;
+  }
+
+  LOG_INFO("Converted ASCII '%s' to HEX '%s'", ascii_msg, hex_msg);
 
   // 초기화 완료 대기 (5초)
   vTaskDelay(pdMS_TO_TICKS(5000));
@@ -747,7 +825,7 @@ static void lora_tx_test_task(void *pvParameter) {
   while (1) {
     LOG_INFO("Sending test data: hello world\\r\\n");
 
-    if (lora_send_p2p_data(test_data, LORA_AT_CMD_TIMEOUT_MS)) {
+    if (lora_send_p2p_data(hex_msg, LORA_AT_CMD_TIMEOUT_MS)) {
       LOG_INFO("Test data sent successfully");
     } else {
       LOG_ERR("Failed to send test data");

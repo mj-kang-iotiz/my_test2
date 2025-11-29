@@ -154,6 +154,26 @@ void lora_set_p2p_recv_callback(lora_p2p_recv_callback_t callback, void *user_da
 lora_t *lora_get_handle(void);
 
 /**
+ * @brief ASCII 문자열을 HEX 문자열로 변환
+ *
+ * @param ascii ASCII 문자열 (예: "hello")
+ * @param hex 출력 HEX 문자열 버퍼 (예: "68656C6C6F")
+ * @param hex_buf_size HEX 버퍼 크기 (최소 ascii_len * 2 + 1)
+ * @return true: 성공, false: 실패
+ */
+bool lora_ascii_to_hex(const char *ascii, char *hex, size_t hex_buf_size);
+
+/**
+ * @brief HEX 문자열을 ASCII 문자열로 변환
+ *
+ * @param hex HEX 문자열 (예: "68656C6C6F")
+ * @param ascii 출력 ASCII 문자열 버퍼 (예: "hello")
+ * @param ascii_buf_size ASCII 버퍼 크기 (최소 hex_len / 2 + 1)
+ * @return true: 성공, false: 실패
+ */
+bool lora_hex_to_ascii(const char *hex, char *ascii, size_t ascii_buf_size);
+
+/**
  * @brief LoRa 송신 테스트 시작 (10초마다 "hello world\r\n" 전송)
  */
 void lora_start_tx_test(void);
