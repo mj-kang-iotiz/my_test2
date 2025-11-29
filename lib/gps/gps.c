@@ -156,12 +156,17 @@ void gps_init(gps_t *gps) {
  */
 void gps_parse_process(gps_t *gps, const void *data, size_t len) {
   const uint8_t *d = data;
+  static uint32_t nmea_start_count = 0;
 
   for (; len > 0; ++d, --len) {
     /* @TODO GPS_PROTOCOL_NONE 일때 start 문자 찾는걸 만들고, 프로토콜에 따라
      * 다르게 파싱하게끔 만들기 */
     if (gps->protocol == GPS_PROTOCOL_NONE) {
       if (*d == '$') {
+        nmea_start_count++;
+        if (nmea_start_count % 10 == 0) {  // 10번마다 로그
+          LOG_DEBUG("🚩 NMEA '$' 감지 (count=%lu, protocol=NONE)", nmea_start_count);
+        }
         memset(gps->nmea.term_str, 0, sizeof(gps->nmea.term_str));
         gps->nmea.term_pos = 0;
         gps->nmea.term_num = 0;
@@ -238,13 +243,23 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
             _gps_gga_raw_add(gps, *d);
             _gps_gga_raw_add(gps, '\n');
             gps->nmea_data.gga_is_rdy = true;
+            LOG_DEBUG("✅ GGA 체크섬 검증 성공, handler 호출 예정");
           }
 #endif
           gps_msg_t msg;
           msg.nmea = gps->nmea.msg_type;
-          
+
           if (gps->handler) {
             gps->handler(gps, GPS_EVENT_DATA_PARSED, GPS_PROTOCOL_NMEA, msg);
+          } else {
+            LOG_WARN("⚠️ gps->handler is NULL!");
+          }
+        } else {
+          if (gps->nmea.msg_type == GPS_NMEA_MSG_GGA) {
+            LOG_WARN("❌ GGA 체크섬 검증 실패 (계산값=0x%02X, 수신값=0x%02X)",
+                     gps->nmea.crc,
+                     (uint8_t)((((PARSER_CHAR_HEX_TO_NUM(gps->nmea.term_str[0])) & 0x0FU) << 0x04U) |
+                               ((PARSER_CHAR_HEX_TO_NUM(gps->nmea.term_str[1])) & 0x0FU)));
           }
         }
 
