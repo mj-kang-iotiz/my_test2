@@ -42,6 +42,7 @@ typedef void (*lora_command_callback_t)(bool success, void *user_data);
 typedef struct {
   char cmd[256];                  // 전송할 AT 명령어
   uint32_t timeout_ms;            // 타임아웃 (ms)
+  uint32_t toa_ms;                // Time on Air (ms) - OK 응답 후 추가 대기 시간
   bool is_async;                  // true: 비동기, false: 동기
   bool skip_response;             // true: 응답 파싱 건너뛰기 (명령어만 전송)
 
@@ -88,12 +89,13 @@ bool lora_send_command_sync(const char *cmd, uint32_t timeout_ms);
  *
  * @param cmd AT 명령어
  * @param timeout_ms 타임아웃 (ms)
+ * @param toa_ms Time on Air (ms) - OK 응답 후 추가 대기 시간
  * @param callback 완료 콜백
  * @param user_data 사용자 데이터
  * @param skip_response true: 응답 파싱 건너뛰기, false: 정상 응답 대기
  * @return true: 요청 성공, false: 요청 실패
  */
-bool lora_send_command_async(const char *cmd, uint32_t timeout_ms,
+bool lora_send_command_async(const char *cmd, uint32_t timeout_ms, uint32_t toa_ms,
                               lora_command_callback_t callback, void *user_data,
                               bool skip_response);
 
