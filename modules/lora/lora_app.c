@@ -197,7 +197,7 @@ static void lora_init_command_callback(bool success, void *user_data)
     // work_mode 명령어는 응답 파싱 건너뛰기
     bool skip = (strstr(ctx->cmd_list[ctx->current_step], "work_mode") != NULL);
     lora_send_command_async(ctx->cmd_list[ctx->current_step],
-                            LORA_INIT_TIMEOUT_MS, lora_init_command_callback, ctx, skip);
+                            LORA_INIT_TIMEOUT_MS, 0, lora_init_command_callback, ctx, skip);
   }
   else
   {
@@ -216,7 +216,7 @@ static void lora_init_command_callback(bool success, void *user_data)
       // work_mode 명령어는 응답 파싱 건너뛰기
       bool skip = (strstr(ctx->cmd_list[ctx->current_step], "work_mode") != NULL);
       lora_send_command_async(ctx->cmd_list[ctx->current_step],
-                              LORA_INIT_TIMEOUT_MS, lora_init_command_callback, ctx, skip);
+                              LORA_INIT_TIMEOUT_MS, 0, lora_init_command_callback, ctx, skip);
     }
     else
     {
@@ -260,7 +260,7 @@ static bool lora_init_p2p_base_async(lora_init_callback_t callback)
   // 첫 번째 명령어 전송
   // work_mode 명령어는 응답 파싱 건너뛰기
   bool skip = (strstr(ctx->cmd_list[0], "work_mode") != NULL);
-  if (!lora_send_command_async(ctx->cmd_list[0], LORA_INIT_TIMEOUT_MS,
+  if (!lora_send_command_async(ctx->cmd_list[0], LORA_INIT_TIMEOUT_MS, 0,
                                lora_init_command_callback, ctx, skip))
   {
     LOG_ERR("Failed to start LoRa init sequence");
@@ -296,7 +296,7 @@ static bool lora_init_p2p_rover_async(lora_init_callback_t callback)
   // 첫 번째 명령어 전송
   // work_mode 명령어는 응답 파싱 건너뛰기
   bool skip = (strstr(ctx->cmd_list[0], "work_mode") != NULL);
-  if (!lora_send_command_async(ctx->cmd_list[0], LORA_INIT_TIMEOUT_MS,
+  if (!lora_send_command_async(ctx->cmd_list[0], LORA_INIT_TIMEOUT_MS, 0,
                                lora_init_command_callback, ctx, skip))
   {
     LOG_ERR("Failed to start LoRa init sequence");
@@ -496,6 +496,14 @@ static void lora_tx_task(void *pvParameter)
           {
             LOG_INFO("LoRa response received: %s",
                      *(cmd_req.result) ? "OK" : "ERROR");
+          }
+
+          // ToA 대기: OK 응답은 명령어 수신 완료일 뿐, 실제 LoRa 전파 전송은 이제 시작
+          // ToA만큼 추가 대기하여 전파 전송 완료 보장
+          if (cmd_req.toa_ms > 0)
+          {
+            LOG_INFO("Waiting ToA %dms for LoRa transmission", cmd_req.toa_ms);
+            vTaskDelay(pdMS_TO_TICKS(cmd_req.toa_ms));
           }
         }
         else
@@ -877,7 +885,7 @@ bool lora_send_command_sync(const char *cmd, uint32_t timeout_ms)
   }
 }
 
-bool lora_send_command_async(const char *cmd, uint32_t timeout_ms,
+bool lora_send_command_async(const char *cmd, uint32_t timeout_ms, uint32_t toa_ms,
                              lora_command_callback_t callback, void *user_data,
                              bool skip_response)
 {
@@ -904,6 +912,7 @@ bool lora_send_command_async(const char *cmd, uint32_t timeout_ms,
   // 명령어 요청 구조체 생성 (비동기 방식)
   lora_cmd_request_t cmd_req = {
       .timeout_ms = timeout_ms,
+      .toa_ms = toa_ms,
       .is_async = true,
       .skip_response = skip_response,
       .response_sem = response_sem,
@@ -1063,7 +1072,7 @@ bool lora_send_p2p_raw_async(const uint8_t *data, size_t len, uint32_t timeout_m
   snprintf(cmd, sizeof(cmd), "at+send=lorap2p:%s\r\n", hex_string);
 
   // Use async command sending mechanism
-  return lora_send_command_async(cmd, timeout_ms, callback, user_data, false);
+  return lora_send_command_async(cmd, timeout_ms, timeout_ms, callback, user_data, false);
 }
 
 void lora_set_p2p_recv_callback(lora_p2p_recv_callback_t callback, void *user_data)
