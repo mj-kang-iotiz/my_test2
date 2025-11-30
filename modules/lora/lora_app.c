@@ -17,7 +17,7 @@
 #define LORA_CMD_QUEUE_SIZE 10
 #define LORA_AT_CMD_TIMEOUT_MS 2000
 #define LORA_INIT_MAX_RETRY 3
-#define LORA_INIT_TIMEOUT_MS 5000 // work_mode는 재시작을 유발하므로 5초로 증가
+#define LORA_INIT_TIMEOUT_MS 2000 // work_mode AT command timeout
 
 #define LORA_RECV_BUF_SIZE 1024
 
@@ -123,6 +123,8 @@ typedef struct
   SemaphoreHandle_t mutex; // UART 송신 보호용 mutex
   bool initialized;
   bool init_complete;
+  bool tx_task_ready;      // TX Task 준비 완료 플래그
+  bool rx_task_ready;      // RX Task 준비 완료 플래그
 
   lora_cmd_request_t *current_cmd_req;        // 현재 처리 중인 명령어
   lora_p2p_recv_callback_t p2p_recv_callback; // P2P 수신 콜백
@@ -414,6 +416,10 @@ static void lora_tx_task(void *pvParameter)
 
   LOG_INFO("LoRa TX Task started");
 
+  // TX Task 준비 완료 플래그 설정
+  instance.tx_task_ready = true;
+  LOG_INFO("LoRa TX Task ready");
+
   while (1)
   {
     if (xQueueReceive(instance.cmd_queue, &cmd_req, portMAX_DELAY) == pdTRUE)
@@ -543,8 +549,17 @@ static void lora_process_task(void *pvParameter)
   static char temp_buf[1024];
   LOG_INFO("LoRa RX Task started");
 
-  // GPS와 동일하게 2초 대기 후 자동 초기화
-  vTaskDelay(pdMS_TO_TICKS(2000));
+  // RX Task 준비 완료 플래그 설정
+  instance.rx_task_ready = true;
+  LOG_INFO("LoRa RX Task ready");
+
+  // TX/RX Task 모두 준비될 때까지 대기
+  while (!instance.tx_task_ready || !instance.rx_task_ready)
+  {
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+
+  LOG_INFO("Both TX and RX tasks ready, starting LoRa initialization");
 
   const board_config_t *config = board_get_config();
 
