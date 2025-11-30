@@ -252,16 +252,16 @@ void rs485_port_start(rs485_t *rs485_handle) {
     return;
   }
 
-  lora_handle->ops->start();
+  rs485_handle->ops->start();
 }
 
 void rs485_port_stop(rs485_t *rs485_handle) {
-  if (!rs485_handle || !rs485_handle->ops || !rs485_handle->ops->start) {
-    LOG_ERR("RS485 start failed: invalid handle or ops");
+  if (!rs485_handle || !rs485_handle->ops || !rs485_handle->ops->stop) {
+    LOG_ERR("RS485 stop failed: invalid handle or ops");
     return;
   }
 
-  lora_handle->ops->stop();
+  rs485_handle->ops->stop();
 }
 
 uint32_t rs485_port_get_rx_pos() {
