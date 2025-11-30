@@ -159,10 +159,6 @@ int rs485_uart5_send(const char *data, size_t len) {
 
 void rs485_tx_enable()
 {
-    LL_USART_DisableIT_IDLE(USART5);
-    LL_USART_DisableDMAReq_RX(USART5);
-    LL_DMA_DisableStream(DMA1, LL_DMA_STREAM_0);
-
     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_10, GPIO_PIN_SET); // DE
     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_11, GPIO_PIN_SET); // /RE
 }
@@ -171,17 +167,6 @@ void rs485_rx_enable()
 {
     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_10, GPIO_PIN_RESET); // DE
     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_11, GPIO_PIN_RESET); // /RE
-
-    while(LL_USART_IsActiveFlag_RXNE(USART5)) {
-        (void)LL_USART_ReceiveData8(USART5);
-    }
-
-    LL_USART_ClearFlag_IDLE(USART5);
-    LL_USART_ClearFlag_ORE(USART5);
-
-    LL_DMA_EnableStream(DMA1, LL_DMA_STREAM_0);
-    LL_USART_EnableDMAReq_RX(USART5);
-    LL_USART_EnableIT_IDLE(USART5);
 }
 
 static const rs485_hal_ops_t rs485_uart5_ops = {
