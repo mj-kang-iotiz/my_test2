@@ -73,11 +73,6 @@ static void rs485_rx_task(void *pvParameter) {
     pos = rs485_port_get_rx_pos();
     char *rs485_recv = rs485_port_get_recv_buf();
 
-    if (pos < old_pos && old_pos > RS485_UART_MAX_RECV_SIZE / 2 && pos < 100) {
-      LOG_DEBUG("RS485 DMA reset detected, resetting old_pos");
-      old_pos = 0;
-    }
-
     if (pos != old_pos) {
       if (pos > old_pos) {
         size_t len = pos - old_pos;

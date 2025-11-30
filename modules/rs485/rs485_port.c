@@ -172,11 +172,13 @@ void rs485_rx_enable()
     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_10, GPIO_PIN_RESET); // DE
     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_11, GPIO_PIN_RESET); // /RE
 
-    LL_DMA_DisableStream(DMA1, LL_DMA_STREAM_0);
-    LL_DMA_SetMemoryAddress(DMA1, LL_DMA_STREAM_0, (uint32_t)&rs485_recv_buf[0]);
-    LL_DMA_SetDataLength(DMA1, LL_DMA_STREAM_0, sizeof(rs485_recv_buf[0]));
+    while(LL_USART_IsActiveFlag_RXNE(USART5)) {
+        (void)LL_USART_ReceiveData8(USART5);
+    }
 
     LL_USART_ClearFlag_IDLE(USART5);
+    LL_USART_ClearFlag_ORE(USART5);
+
     LL_DMA_EnableStream(DMA1, LL_DMA_STREAM_0);
     LL_USART_EnableDMAReq_RX(USART5);
     LL_USART_EnableIT_IDLE(USART5);
