@@ -1,5 +1,7 @@
 #include "rtcm.h"
 #include "lora_app.h"
+#include "FreeRTOS.h"
+#include "task.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -10,6 +12,25 @@
 #include "log.h"
 
 #define RTCM_MAX_LORA_SIZE 236  // Max LoRa transmission size (bytes)
+
+// LoRa Time on Air calculation (SF7, BW125, CR4/5, Preamble 8)
+// Measured: 236 bytes = 350ms, with 20% margin = 420ms
+#define LORA_TOA_BASE_BYTES 236
+#define LORA_TOA_BASE_MS 350
+#define LORA_TOA_MARGIN_PERCENT 20  // 20% margin
+
+/**
+ * @brief Calculate LoRa Time on Air (ToA) with margin
+ *
+ * @param bytes Payload size in bytes
+ * @return Time on Air in milliseconds (with 20% margin)
+ */
+static uint32_t calculate_lora_toa(size_t bytes) {
+  // ToA(ms) = (bytes / 236) * 350 * 1.2
+  uint32_t toa_ms = (bytes * LORA_TOA_BASE_MS / LORA_TOA_BASE_BYTES);
+  toa_ms = toa_ms * (100 + LORA_TOA_MARGIN_PERCENT) / 100;
+  return toa_ms;
+}
 
 /**
  * @brief Convert binary data to HEX string
@@ -52,11 +73,6 @@ bool rtcm_send_to_lora(gps_t *gps) {
     return false;
   }
 
-  if (rtcm_len > RTCM_MAX_LORA_SIZE) {
-    LOG_ERR("RTCM length too large: %d > %d (max)", rtcm_len, RTCM_MAX_LORA_SIZE);
-    return false;
-  }
-
   // Add padding for odd-byte data
   size_t actual_len = rtcm_len;
   uint8_t padded_data[RTCM_MAX_LORA_SIZE + 1];
@@ -72,6 +88,12 @@ bool rtcm_send_to_lora(gps_t *gps) {
     LOG_INFO("RTCM odd-byte padding: %d -> %d bytes", rtcm_len, actual_len);
   }
 
+  // Check padded length (MUST be after padding calculation)
+  if (actual_len > RTCM_MAX_LORA_SIZE) {
+    LOG_ERR("RTCM length too large after padding: %d > %d (max)", actual_len, RTCM_MAX_LORA_SIZE);
+    return false;
+  }
+
   // Convert binary data to HEX string
   // HEX string size: actual_len * 2 + 1 (NULL terminator)
   char hex_str[RTCM_MAX_LORA_SIZE * 2 + 3];  // Sufficient buffer size
@@ -81,14 +103,34 @@ bool rtcm_send_to_lora(gps_t *gps) {
     return false;
   }
 
-  // Send via LoRa P2P
-  // Note: lora_send_p2p_data() internally checks if LoRa is initialized
-  LOG_INFO("Sending RTCM to LoRa: type=%d, len=%d, padded_len=%d",
-           gps->rtcm.msg_type, rtcm_len, actual_len);
+  // Calculate Time on Air (ToA) for this packet
+  uint32_t toa_ms = calculate_lora_toa(actual_len);
 
-  if (!lora_send_p2p_data(hex_str, 2000)) {
+  // Send via LoRa P2P with ToA-based timeout
+  // Note: lora_send_p2p_data() internally checks if LoRa is initialized
+  LOG_INFO("Sending RTCM to LoRa: type=%d, len=%d, padded_len=%d, ToA=%dms",
+           gps->rtcm.msg_type, rtcm_len, actual_len, toa_ms);
+
+  // Record start time
+  TickType_t start_tick = xTaskGetTickCount();
+
+  if (!lora_send_p2p_data(hex_str, toa_ms)) {
     LOG_ERR("Failed to send RTCM via LoRa");
     return false;
+  }
+
+  // Calculate elapsed time (OK response time)
+  TickType_t elapsed_tick = xTaskGetTickCount() - start_tick;
+  uint32_t elapsed_ms = elapsed_tick * 1000 / configTICK_RATE_HZ;
+
+  // Wait for remaining ToA time
+  if (elapsed_ms < toa_ms) {
+    uint32_t remaining_ms = toa_ms - elapsed_ms;
+    vTaskDelay(pdMS_TO_TICKS(remaining_ms));
+    LOG_INFO("RTCM TX complete: OK_time=%dms, wait=%dms, total=%dms",
+             elapsed_ms, remaining_ms, toa_ms);
+  } else {
+    LOG_WARN("RTCM TX took longer than ToA: %dms > %dms", elapsed_ms, toa_ms);
   }
 
   LOG_INFO("RTCM sent successfully (type=%d)", gps->rtcm.msg_type);
