@@ -596,10 +596,13 @@ static void lora_process_task(void *pvParameter)
         // AT 명령어 응답 처리
         if (instance.current_cmd_req != NULL)
         {
+          LOG_INFO("current_cmd_req is NOT NULL, parsing response...");
           bool result = lora_parse_at_response(temp_buf, len);
+          LOG_INFO("Parse result: %s", result ? "OK" : "ERROR/NONE");
 
           if (strstr(temp_buf, "OK") || strstr(temp_buf, "ERROR"))
           {
+            LOG_INFO("OK/ERROR detected, giving semaphore...");
             // 응답 결과 저장
             if (instance.current_cmd_req->is_async)
             {
@@ -612,7 +615,16 @@ static void lora_process_task(void *pvParameter)
 
             // 세마포어 해제 (TX Task로 응답 완료 알림)
             xSemaphoreGive(instance.current_cmd_req->response_sem);
+            LOG_INFO("Semaphore given!");
           }
+          else
+          {
+            LOG_WARN("No OK/ERROR in response, ignoring...");
+          }
+        }
+        else
+        {
+          LOG_WARN("current_cmd_req is NULL, skipping response handling");
         }
 
         // P2P 수신 데이터 처리 (at+recv=...)
