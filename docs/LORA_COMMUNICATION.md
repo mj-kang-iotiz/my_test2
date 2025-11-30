@@ -9,6 +9,7 @@
 - [6. RTCM 데이터 전송](#6-rtcm-데이터-전송)
 - [7. 사용 예제](#7-사용-예제)
 - [8. 트러블슈팅](#8-트러블슈팅)
+- [9. 플로우 차트 및 다이어그램](#9-플로우-차트-및-다이어그램)
 
 ---
 
@@ -1049,6 +1050,364 @@ LOG_DEBUG("LoRa RX buffer: %d bytes", buffer_pos);
 LOG_INFO("RTCM packet valid: len=%d", len);
 LOG_WARN("RTCM reassembly timeout - resetting buffer");
 LOG_ERR("Failed to send P2P data");
+```
+
+---
+
+## 9. 플로우 차트 및 다이어그램
+
+### 9.1 전체 시스템 초기화 플로우
+
+```mermaid
+flowchart TD
+    A[시스템 시작] --> B[HAL_Init]
+    B --> C[lora_instance_init 호출]
+    C --> D[UART3 하드웨어 초기화]
+    D --> E[RX/TX Queue 생성]
+    E --> F[Mutex 생성]
+    F --> G[RX Task 생성]
+    G --> H[TX Task 생성]
+    H --> I{Board 모드 확인}
+    I -->|BASE| J[BASE 초기화 시작]
+    I -->|ROVER| K[ROVER 초기화 시작]
+    J --> L[lora_init_p2p_base_async]
+    K --> M[lora_init_p2p_rover_async]
+    L --> N[AT 명령어 시퀀스 실행]
+    M --> N
+    N --> O{모든 명령어 성공?}
+    O -->|Yes| P[초기화 완료]
+    O -->|No| Q{재시도 횟수 < 3?}
+    Q -->|Yes| N
+    Q -->|No| R[초기화 실패]
+    P --> S[P2P 데이터 송수신 가능]
+    R --> T[에러 로그 출력]
+```
+
+### 9.2 LoRa BASE 초기화 시퀀스
+
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant RX as RX Task
+    participant TX as TX Task
+    participant LoRa as LoRa Module
+
+    App->>RX: Task 생성
+    App->>TX: Task 생성
+
+    Note over RX,TX: Task 준비 대기
+    RX->>RX: rx_task_ready = true
+    TX->>TX: tx_task_ready = true
+
+    RX->>RX: 초기화 시작 (BASE 모드)
+
+    RX->>TX: CMD1: work_mode:1
+    TX->>LoRa: at+set_config=lora:work_mode:1\r\n
+    LoRa-->>RX: OK (또는 Initialization OK)
+    RX->>RX: ✓ Step 1/3 완료
+
+    RX->>TX: CMD2: lorap2p config
+    TX->>LoRa: at+set_config=lorap2p:920900000:7:0:1:8:14\r\n
+    LoRa-->>RX: OK
+    RX->>RX: ✓ Step 2/3 완료
+
+    RX->>TX: CMD3: transfer_mode:2
+    TX->>LoRa: at+set_config=lorap2p:transfer_mode:2\r\n
+    LoRa-->>RX: OK
+    RX->>RX: ✓ Step 3/3 완료
+
+    RX->>App: 초기화 완료 콜백
+    Note over App: init_complete = true
+```
+
+### 9.3 TX Task 처리 플로우
+
+```mermaid
+flowchart TD
+    A[TX Task 시작] --> B[cmd_queue에서 명령어 대기]
+    B --> C{큐에서 명령어 수신}
+    C -->|수신| D[current_cmd_req 저장]
+    D --> E[시작 시간 기록]
+    E --> F[Mutex 획득]
+    F --> G[UART로 명령어 전송]
+    G --> H[Mutex 해제]
+    H --> I{skip_response?}
+    I -->|Yes| J[timeout_ms만큼 대기]
+    I -->|No| K[response_sem 대기]
+    J --> L[성공 처리]
+    K --> M{Timeout 내 응답?}
+    M -->|Yes| N{응답 결과 확인}
+    M -->|No| O[실패 처리]
+    N -->|OK| P{ToA 대기 필요?}
+    N -->|ERROR| O
+    P -->|Yes| Q[남은 ToA 계산]
+    P -->|No| R[결과 반환]
+    Q --> S[vTaskDelay]
+    S --> R
+    L --> R
+    O --> R
+    R --> T{비동기 모드?}
+    T -->|Yes| U[콜백 함수 호출]
+    T -->|No| V[세마포어 반환]
+    U --> W[세마포어 삭제]
+    V --> B
+    W --> B
+```
+
+### 9.4 RX Task 처리 플로우
+
+```mermaid
+flowchart TD
+    A[RX Task 시작] --> B[UART DMA 인터럽트 대기]
+    B --> C{수신 데이터 있음?}
+    C -->|Yes| D[수신 버퍼 읽기]
+    C -->|No| B
+    D --> E{AT 명령어 응답?}
+    E -->|Yes| F[OK/ERROR 파싱]
+    E -->|No| G{P2P 수신 데이터?}
+    F --> H{current_cmd_req 존재?}
+    H -->|Yes| I[결과 저장]
+    H -->|No| B
+    I --> J[response_sem 해제]
+    J --> B
+
+    G -->|Yes| K{초기화 완료?}
+    K -->|No| L[무시]
+    K -->|Yes| M[at+recv 파싱]
+    L --> B
+    M --> N[RSSI, SNR, Data 추출]
+    N --> O{콜백 등록?}
+    O -->|Yes| P[사용자 콜백 호출]
+    O -->|No| Q[RTCM 재조립 시작]
+    P --> B
+    Q --> R[rtcm_reassembly_process]
+    R --> S{재조립 완료?}
+    S -->|No| B
+    S -->|Yes| T[CRC24Q 검증]
+    T --> U{CRC 유효?}
+    U -->|Yes| V[GPS 모듈로 전송]
+    U -->|No| W[패킷 폐기]
+    V --> X{남은 데이터 있음?}
+    W --> X
+    X -->|Yes| Y[버퍼 앞으로 이동]
+    X -->|No| Z[버퍼 초기화]
+    Y --> B
+    Z --> B
+```
+
+### 9.5 RTCM Fragment 재조립 플로우
+
+```mermaid
+flowchart TD
+    A[Fragment 수신] --> B{타임아웃 체크}
+    B -->|5초 초과| C[버퍼 초기화]
+    B -->|정상| D[Fragment 추가]
+    C --> D
+    D --> E{버퍼 오버플로우?}
+    E -->|Yes| F[에러, 버퍼 초기화]
+    E -->|No| G{헤더 수신 완료?}
+    F --> Z[재조립 실패]
+    G -->|No| H[Preamble 0xD3 탐색]
+    H --> I{Preamble 발견?}
+    I -->|No| J[마지막 1바이트만 보존]
+    I -->|Yes| K[Preamble을 버퍼 앞으로 이동]
+    J --> Z
+    K --> L{버퍼에 3바이트 이상?}
+    L -->|No| Z
+    L -->|Yes| M[Length 필드 파싱]
+    M --> N[expected_len 계산]
+    N --> O{expected_len > 1024?}
+    O -->|Yes| P[비정상, 버퍼 초기화]
+    O -->|No| Q[has_header = true]
+    P --> Z
+    Q --> R{buffer_pos >= expected_len?}
+
+    G -->|Yes| R
+    R -->|No| Z
+    R -->|Yes| S[재조립 완료!]
+    S --> T[CRC24Q 계산]
+    T --> U{CRC 일치?}
+    U -->|Yes| V[유효한 RTCM 패킷]
+    U -->|No| W[무효 패킷]
+    V --> X{남은 데이터?}
+    W --> Y[패킷 폐기]
+    X -->|Yes| AA[남은 데이터 보존]
+    X -->|No| AB[버퍼 완전 초기화]
+    Y --> AB
+    AA --> AC[다음 수신 대기]
+    AB --> AC
+    Z --> AC
+```
+
+### 9.6 동기 vs 비동기 전송 비교
+
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant API as LoRa API
+    participant TXQ as TX Queue
+    participant TX as TX Task
+    participant LoRa as LoRa Module
+
+    Note over App,LoRa: 동기 전송 (Blocking)
+    App->>API: lora_send_p2p_raw(data, len, timeout)
+    API->>API: 세마포어 생성
+    API->>TXQ: 명령어 큐에 추가
+    TXQ->>TX: 명령어 전달
+    TX->>LoRa: AT 명령어 전송
+    LoRa-->>TX: OK 응답
+    TX->>API: 세마포어 해제
+    API->>App: true 반환
+    Note over App: ⏸ Blocking 완료
+
+    Note over App,LoRa: 비동기 전송 (Non-blocking)
+    App->>API: lora_send_p2p_raw_async(data, len, timeout, callback, user_data)
+    API->>API: 세마포어 생성
+    API->>TXQ: 명령어 큐에 추가
+    API->>App: true 즉시 반환 ⚡
+    Note over App: 🔄 계속 실행 가능
+    App->>App: do_other_work()
+    TXQ->>TX: 명령어 전달
+    TX->>LoRa: AT 명령어 전송
+    LoRa-->>TX: OK 응답
+    TX->>App: callback(true, user_data) 호출
+    Note over App: ✓ 비동기 완료 알림
+```
+
+### 9.7 P2P 데이터 송수신 시퀀스
+
+```mermaid
+sequenceDiagram
+    participant BASE_GPS as BASE GPS
+    participant BASE_App as BASE App
+    participant BASE_LoRa as BASE LoRa Module
+    participant Air as 🌐 무선 전송
+    participant ROVER_LoRa as ROVER LoRa Module
+    participant ROVER_App as ROVER App
+    participant ROVER_GPS as ROVER GPS
+
+    Note over BASE_GPS: RTCM 데이터 생성 (200 bytes)
+    BASE_GPS->>BASE_App: RTCM 패킷
+    BASE_App->>BASE_App: Fragment 1 (118 bytes)
+    BASE_App->>BASE_LoRa: at+send=lorap2p:D300... (HEX)
+    BASE_LoRa-->>BASE_App: OK
+    Note over BASE_LoRa,Air: SF7, 920.9MHz, ~40ms ToA
+    BASE_LoRa->>Air: LoRa 무선 전송
+    Air->>ROVER_LoRa: Fragment 1 수신
+    ROVER_LoRa->>ROVER_App: at+recv=-50,10,118:D300...
+    ROVER_App->>ROVER_App: 재조립 버퍼에 추가 (118/200)
+
+    Note over BASE_App: ToA 대기 (60ms)
+    BASE_App->>BASE_App: Fragment 2 (82 bytes)
+    BASE_App->>BASE_LoRa: at+send=lorap2p:... (HEX)
+    BASE_LoRa-->>BASE_App: OK
+    BASE_LoRa->>Air: LoRa 무선 전송
+    Air->>ROVER_LoRa: Fragment 2 수신
+    ROVER_LoRa->>ROVER_App: at+recv=-48,12,82:...
+    ROVER_App->>ROVER_App: 재조립 버퍼에 추가 (200/200)
+
+    ROVER_App->>ROVER_App: CRC24Q 검증 ✓
+    ROVER_App->>ROVER_GPS: 완전한 RTCM 패킷 (200 bytes)
+    Note over ROVER_GPS: RTK 보정 적용
+```
+
+### 9.8 AT 명령어 재시도 메커니즘
+
+```mermaid
+flowchart TD
+    A[AT 명령어 전송] --> B[TX Task에 큐 추가]
+    B --> C[UART 전송]
+    C --> D{Timeout 내 응답?}
+    D -->|Yes| E{응답 = OK?}
+    D -->|No| F{재시도 < 3?}
+    E -->|Yes| G[성공]
+    E -->|No| F
+    F -->|Yes| H[retry_count++]
+    F -->|No| I[최종 실패]
+    H --> J[같은 명령어 재전송]
+    J --> C
+    G --> K[다음 단계 진행]
+    I --> L[초기화 실패 콜백]
+```
+
+### 9.9 메모리 레이아웃
+
+#### 재조립 버퍼 구조
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  rtcm_reassembly_t (1032 bytes)                              │
+├─────────────────────────────────────────────────────────────┤
+│  buffer[1024]                                                │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │ [D3][00][13][ Payload ... ][CRC][CRC][CRC]          │   │
+│  │  ^                                        ^          │   │
+│  │  Preamble                                 CRC24Q     │   │
+│  └──────────────────────────────────────────────────────┘   │
+│  buffer_pos:      118 (현재 위치)                            │
+│  expected_len:    200 (예상 전체 길이)                       │
+│  has_header:      true                                       │
+│  last_recv_tick:  12345 (FreeRTOS tick)                      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### FreeRTOS Queue 구조
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  cmd_queue (TX 명령어 큐)                                     │
+│  Size: 20                                                    │
+│  Item Size: sizeof(lora_cmd_request_t) = 296 bytes          │
+├─────────────────────────────────────────────────────────────┤
+│  [CMD 1: at+version\r\n        ]                             │
+│  [CMD 2: at+send=lorap2p:...   ]                             │
+│  [CMD 3: at+set_config=...     ]                             │
+│  [...                          ]                             │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│  queue (RX 이벤트 큐)                                         │
+│  Size: 10                                                    │
+│  Item Size: sizeof(uint8_t) = 1 byte                        │
+├─────────────────────────────────────────────────────────────┤
+│  [0x01] [0x01] [0x01] ...                                    │
+│  (DMA 인터럽트 알림용 더미 데이터)                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 9.10 RTCM 패킷 실제 예제
+
+#### RTCM 1005 패킷 (Antenna Reference Point)
+
+```
+바이너리 (HEX):
+D3 00 13 3E D0 00 03 8A 2D E4 F7 10 9D 54 60 00 00 1C 0C 10 FA 01 89 A4 5C
+
+분석:
+┌──────────┬────────────────────────────────────────────────────┐
+│ 바이트   │ 설명                                                │
+├──────────┼────────────────────────────────────────────────────┤
+│ D3       │ Preamble (고정)                                     │
+│ 00 13    │ Reserved(6bit) + Length(10bit) = 19 bytes payload  │
+│ 3E D0... │ Payload (Message Type 1005 + Data, 19 bytes)       │
+│ 89 A4 5C │ CRC24Q (24-bit)                                     │
+└──────────┴────────────────────────────────────────────────────┘
+
+Length 파싱:
+  Byte 1: 0x00 = 0000 0000
+  Byte 2: 0x13 = 0001 0011
+
+  Reserved (6 bits): 000000
+  Length (10 bits):  00 0001 0011 = 19 (decimal)
+
+  Expected total length = 3 + 19 + 3 = 25 bytes ✓
+
+HEX ASCII 변환 (LoRa 전송용):
+  D300133ED00003... → "D300133ED00003..."
+  25 bytes → 50 characters (HEX ASCII)
+
+LoRa 전송:
+  at+send=lorap2p:D300133ED00003...89A45C\r\n
 ```
 
 ---
