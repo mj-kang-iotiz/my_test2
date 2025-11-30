@@ -5,6 +5,7 @@
 #include "gps_unicore.h"
 #include "ntrip_app.h"
 #include "led.h"
+#include "rtcm.h"
 #include <string.h>
 
 #ifndef TAG
@@ -426,6 +427,11 @@ void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
       }
     }
 
+    break;
+
+  case GPS_PROTOCOL_RTCM:
+    // RTCM 패킷을 LoRa로 전송
+    rtcm_send_to_lora(gps);
     break;
 
   default:

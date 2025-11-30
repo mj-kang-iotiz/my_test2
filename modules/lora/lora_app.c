@@ -17,7 +17,7 @@
 #define LORA_CMD_QUEUE_SIZE 10
 #define LORA_AT_CMD_TIMEOUT_MS 2000
 #define LORA_INIT_MAX_RETRY 3
-#define LORA_INIT_TIMEOUT_MS 5000 // work_mode는 재시작을 유발하므로 5초로 증가
+#define LORA_INIT_TIMEOUT_MS 2000 // work_mode AT command timeout
 
 #define LORA_RECV_BUF_SIZE 1024
 
@@ -123,6 +123,8 @@ typedef struct
   SemaphoreHandle_t mutex; // UART 송신 보호용 mutex
   bool initialized;
   bool init_complete;
+  bool tx_task_ready;      // TX Task 준비 완료 플래그
+  bool rx_task_ready;      // RX Task 준비 완료 플래그
 
   lora_cmd_request_t *current_cmd_req;        // 현재 처리 중인 명령어
   lora_p2p_recv_callback_t p2p_recv_callback; // P2P 수신 콜백
@@ -414,6 +416,10 @@ static void lora_tx_task(void *pvParameter)
 
   LOG_INFO("LoRa TX Task started");
 
+  // TX Task 준비 완료 플래그 설정
+  instance.tx_task_ready = true;
+  LOG_INFO("LoRa TX Task ready");
+
   while (1)
   {
     if (xQueueReceive(instance.cmd_queue, &cmd_req, portMAX_DELAY) == pdTRUE)
@@ -543,8 +549,17 @@ static void lora_process_task(void *pvParameter)
   static char temp_buf[1024];
   LOG_INFO("LoRa RX Task started");
 
-  // GPS와 동일하게 2초 대기 후 자동 초기화
-  vTaskDelay(pdMS_TO_TICKS(2000));
+  // RX Task 준비 완료 플래그 설정
+  instance.rx_task_ready = true;
+  LOG_INFO("LoRa RX Task ready");
+
+  // TX/RX Task 모두 준비될 때까지 대기
+  while (!instance.tx_task_ready || !instance.rx_task_ready)
+  {
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+
+  LOG_INFO("Both TX and RX tasks ready, starting LoRa initialization");
 
   const board_config_t *config = board_get_config();
 
@@ -581,10 +596,13 @@ static void lora_process_task(void *pvParameter)
         // AT 명령어 응답 처리
         if (instance.current_cmd_req != NULL)
         {
+          LOG_INFO("current_cmd_req is NOT NULL, parsing response...");
           bool result = lora_parse_at_response(temp_buf, len);
+          LOG_INFO("Parse result: %s", result ? "OK" : "ERROR/NONE");
 
           if (strstr(temp_buf, "OK") || strstr(temp_buf, "ERROR"))
           {
+            LOG_INFO("OK/ERROR detected, giving semaphore...");
             // 응답 결과 저장
             if (instance.current_cmd_req->is_async)
             {
@@ -597,7 +615,16 @@ static void lora_process_task(void *pvParameter)
 
             // 세마포어 해제 (TX Task로 응답 완료 알림)
             xSemaphoreGive(instance.current_cmd_req->response_sem);
+            LOG_INFO("Semaphore given!");
           }
+          else
+          {
+            LOG_WARN("No OK/ERROR in response, ignoring...");
+          }
+        }
+        else
+        {
+          LOG_WARN("current_cmd_req is NULL, skipping response handling");
         }
 
         // P2P 수신 데이터 처리 (at+recv=...)
@@ -937,6 +964,108 @@ bool lora_send_p2p_data(const char *data, uint32_t timeout_ms)
   char cmd[512];
   snprintf(cmd, sizeof(cmd), "at+send=lorap2p:%s\r\n", data);
   return lora_send_command_sync(cmd, timeout_ms);
+}
+
+bool lora_send_p2p_raw(const uint8_t *data, size_t len, uint32_t timeout_ms)
+{
+  if (!instance.initialized)
+  {
+    LOG_ERR("LoRa not initialized");
+    return false;
+  }
+
+  if (!data || len == 0)
+  {
+    LOG_ERR("NULL data or zero length");
+    return false;
+  }
+
+  if (len > 236)
+  {
+    LOG_ERR("Data too large: %d > 236", len);
+    return false;
+  }
+
+  // Create semaphore for OK/ERROR response
+  SemaphoreHandle_t response_sem = xSemaphoreCreateBinary();
+  if (response_sem == NULL)
+  {
+    LOG_ERR("Failed to create semaphore");
+    return false;
+  }
+
+  bool result = false;
+
+  // Prepare AT command header: "at+send=lorap2p:"
+  const char *at_header = "at+send=lorap2p:";
+  const char *at_footer = "\r\n";
+
+  // Create command request for RX task to process response
+  lora_cmd_request_t cmd_req = {
+      .timeout_ms = timeout_ms,
+      .is_async = false,
+      .skip_response = false,
+      .response_sem = response_sem,
+      .result = &result,
+      .callback = NULL,
+      .user_data = NULL,
+  };
+  cmd_req.cmd[0] = '\0'; // Mark as raw binary send
+
+  LOG_INFO("Sending raw P2P data: %d bytes", len);
+
+  // Direct UART transmission
+  if (!instance.lora.ops || !instance.lora.ops->send)
+  {
+    LOG_ERR("LoRa send ops not available");
+    vSemaphoreDelete(response_sem);
+    return false;
+  }
+
+  // Register this request so RX task can handle response
+  instance.current_cmd_req = &cmd_req;
+
+  // Take mutex to protect UART
+  xSemaphoreTake(instance.mutex, portMAX_DELAY);
+
+  LOG_INFO("UART sending: header + %d bytes + footer", len);
+
+  // Send AT header
+  instance.lora.ops->send(at_header, strlen(at_header));
+
+  // Send raw binary data (첫 4바이트만 로그)
+  if (len >= 4) {
+    LOG_INFO("First 4 bytes: %02X %02X %02X %02X", data[0], data[1], data[2], data[3]);
+  }
+  instance.lora.ops->send((const char *)data, len);
+
+  // Send footer
+  instance.lora.ops->send(at_footer, strlen(at_footer));
+
+  xSemaphoreGive(instance.mutex);
+
+  LOG_INFO("UART transmission complete, waiting for response...");
+
+  // Wait for OK/ERROR response from RX task
+  if (xSemaphoreTake(response_sem, pdMS_TO_TICKS(timeout_ms)) == pdTRUE)
+  {
+    // Response received (OK or ERROR)
+    LOG_INFO("Raw P2P response: %s", result ? "OK" : "ERROR");
+  }
+  else
+  {
+    // Timeout - no response
+    LOG_WARN("Raw P2P timeout - no response");
+    result = false;
+  }
+
+  // Clear current request
+  instance.current_cmd_req = NULL;
+
+  // Delete semaphore
+  vSemaphoreDelete(response_sem);
+
+  return result;
 }
 
 void lora_set_p2p_recv_callback(lora_p2p_recv_callback_t callback, void *user_data)

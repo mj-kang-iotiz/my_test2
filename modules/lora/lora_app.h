@@ -131,13 +131,26 @@ bool lora_set_p2p_config(uint32_t freq, uint8_t sf, uint8_t bw, uint8_t cr,
 bool lora_set_p2p_transfer_mode(lora_p2p_transfer_mode_t mode, uint32_t timeout_ms);
 
 /**
- * @brief LoRa P2P 데이터 전송
+ * @brief LoRa P2P 데이터 전송 (HEX string)
  *
  * @param data 전송할 데이터 (HEX string, 예: "48656C6C6F" = "Hello")
  * @param timeout_ms 타임아웃 (ms)
  * @return true: 성공, false: 실패
  */
 bool lora_send_p2p_data(const char *data, uint32_t timeout_ms);
+
+/**
+ * @brief LoRa P2P Raw Binary 데이터 전송
+ *
+ * RAK4270 비공식 기능: at+send=lorap2p: 뒤에 raw binary 직접 전송
+ * 최대 236바이트까지 전송 가능 (HEX string 방식은 118바이트만 가능)
+ *
+ * @param data 전송할 raw binary 데이터
+ * @param len 데이터 길이 (바이트)
+ * @param timeout_ms 타임아웃 (ms)
+ * @return true: 성공, false: 실패
+ */
+bool lora_send_p2p_raw(const uint8_t *data, size_t len, uint32_t timeout_ms);
 
 /**
  * @brief LoRa P2P 수신 콜백 등록
