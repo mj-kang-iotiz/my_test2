@@ -2,7 +2,6 @@
 #include "lora_app.h"
 #include "FreeRTOS.h"
 #include "task.h"
-#include "queue.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -12,111 +11,112 @@
 
 #include "log.h"
 
-#define RTCM_MAX_LORA_SIZE 236  // Max LoRa transmission size (bytes)
-#define RTCM_TX_QUEUE_SIZE 10   // RTCM 전송 큐 크기
+// HEX ASCII로 변환하면 데이터가 2배 증가:
+// LoRa 최대 236 HEX 문자 = 118 바이트 binary
+#define RTCM_MAX_FRAGMENT_SIZE 118  // Max binary size per fragment
 
 // LoRa Time on Air calculation (SF7, BW125, CR4/5, Preamble 8)
-// Measured: 236 bytes = 350ms, with 20% margin = 420ms
-#define LORA_TOA_BASE_BYTES 236
+// HEX 변환 시: 1 byte -> 2 HEX chars
+// ToA는 실제 전송되는 HEX 문자 수 기준 (bytes * 2)
+// Measured: 236 HEX chars = 350ms, with 20% margin = 420ms
+#define LORA_TOA_BASE_HEX_CHARS 236
 #define LORA_TOA_BASE_MS 350
 #define LORA_TOA_MARGIN_PERCENT 20  // 20% margin
-
-// RTCM 전송 큐 데이터 구조
-typedef struct {
-  uint8_t data[RTCM_MAX_LORA_SIZE + 1];
-  size_t len;
-  uint16_t msg_type;
-} rtcm_tx_item_t;
-
-static QueueHandle_t rtcm_tx_queue = NULL;
-static TaskHandle_t rtcm_tx_task_handle = NULL;
 
 /**
  * @brief Calculate LoRa Time on Air (ToA) with margin
  *
- * @param bytes Payload size in bytes
+ * @param binary_bytes Binary payload size (before HEX conversion)
  * @return Time on Air in milliseconds (with 20% margin)
  */
-static uint32_t calculate_lora_toa(size_t bytes) {
-  // ToA(ms) = (bytes / 236) * 350 * 1.2
-  uint32_t toa_ms = (bytes * LORA_TOA_BASE_MS / LORA_TOA_BASE_BYTES);
+static uint32_t calculate_lora_toa(size_t binary_bytes) {
+  // HEX conversion: 1 byte -> 2 HEX chars
+  size_t hex_chars = binary_bytes * 2;
+
+  // ToA(ms) = (hex_chars / 236) * 350 * 1.2
+  uint32_t toa_ms = (hex_chars * LORA_TOA_BASE_MS / LORA_TOA_BASE_HEX_CHARS);
   toa_ms = toa_ms * (100 + LORA_TOA_MARGIN_PERCENT) / 100;
+
+  // Minimum ToA (작은 패킷도 최소 시간 필요)
+  if (toa_ms < 50) {
+    toa_ms = 50;
+  }
+
   return toa_ms;
 }
 
+// Fragment context for async transmission
+typedef struct {
+  uint8_t *remaining_data;
+  size_t remaining_len;
+  uint16_t msg_type;
+  uint8_t fragment_idx;
+  uint8_t total_fragments;
+} rtcm_fragment_ctx_t;
+
+static rtcm_fragment_ctx_t *current_fragment_ctx = NULL;
+
 /**
- * @brief RTCM TX Task (큐에서 RTCM 데이터 꺼내서 LoRa 전송)
+ * @brief Callback for fragment transmission completion
  */
-static void rtcm_tx_task(void *pvParameter) {
-  rtcm_tx_item_t item;
+static void rtcm_fragment_callback(bool success, void *user_data) {
+  rtcm_fragment_ctx_t *ctx = (rtcm_fragment_ctx_t *)user_data;
 
-  LOG_INFO("RTCM TX Task started");
-
-  while (1) {
-    // 큐에서 RTCM 데이터 대기
-    if (xQueueReceive(rtcm_tx_queue, &item, portMAX_DELAY) == pdTRUE) {
-      // Calculate Time on Air (ToA) for this packet
-      uint32_t toa_ms = calculate_lora_toa(item.len);
-
-      LOG_INFO("RTCM TX: type=%d, len=%d, ToA=%dms", item.msg_type, item.len, toa_ms);
-
-      // Record start time
-      TickType_t start_tick = xTaskGetTickCount();
-
-      // Send raw binary data directly (at+send=lorap2p:[raw binary]\r\n)
-      if (!lora_send_p2p_raw(item.data, item.len, toa_ms)) {
-        LOG_ERR("Failed to send RTCM via LoRa");
-        continue;
-      }
-
-      // Calculate elapsed time (OK response time)
-      TickType_t elapsed_tick = xTaskGetTickCount() - start_tick;
-      uint32_t elapsed_ms = elapsed_tick * 1000 / configTICK_RATE_HZ;
-
-      // Wait for remaining ToA time
-      if (elapsed_ms < toa_ms) {
-        uint32_t remaining_ms = toa_ms - elapsed_ms;
-        vTaskDelay(pdMS_TO_TICKS(remaining_ms));
-        LOG_INFO("RTCM TX complete: OK_time=%dms, wait=%dms, total=%dms",
-                 elapsed_ms, remaining_ms, toa_ms);
-      } else {
-        LOG_WARN("RTCM TX took longer than ToA: %dms > %dms", elapsed_ms, toa_ms);
-      }
-
-      LOG_INFO("RTCM sent successfully (type=%d)", item.msg_type);
-    }
+  if (!ctx) {
+    LOG_ERR("Fragment context is NULL");
+    return;
   }
 
-  vTaskDelete(NULL);
+  if (!success) {
+    LOG_ERR("Fragment %d/%d transmission failed", ctx->fragment_idx, ctx->total_fragments);
+    vPortFree(ctx);
+    current_fragment_ctx = NULL;
+    return;
+  }
+
+  LOG_INFO("Fragment %d/%d sent successfully", ctx->fragment_idx, ctx->total_fragments);
+
+  // Check if there are more fragments
+  if (ctx->remaining_len > 0) {
+    // Send next fragment
+    size_t fragment_len = (ctx->remaining_len > RTCM_MAX_FRAGMENT_SIZE)
+                          ? RTCM_MAX_FRAGMENT_SIZE
+                          : ctx->remaining_len;
+
+    uint32_t toa_ms = calculate_lora_toa(fragment_len);
+
+    ctx->fragment_idx++;
+    LOG_INFO("Sending fragment %d/%d: %d bytes, ToA=%dms",
+             ctx->fragment_idx, ctx->total_fragments, fragment_len, toa_ms);
+
+    if (!lora_send_p2p_raw_async(ctx->remaining_data, fragment_len, toa_ms,
+                                  rtcm_fragment_callback, ctx)) {
+      LOG_ERR("Failed to queue fragment %d", ctx->fragment_idx);
+      vPortFree(ctx);
+      current_fragment_ctx = NULL;
+      return;
+    }
+
+    // Update context for next fragment
+    ctx->remaining_data += fragment_len;
+    ctx->remaining_len -= fragment_len;
+  } else {
+    // All fragments sent
+    LOG_INFO("RTCM transmission complete (type=%d, %d fragments)",
+             ctx->msg_type, ctx->total_fragments);
+    vPortFree(ctx);
+    current_fragment_ctx = NULL;
+  }
 }
 
 void rtcm_tx_task_init(void) {
-  // 큐 생성
-  rtcm_tx_queue = xQueueCreate(RTCM_TX_QUEUE_SIZE, sizeof(rtcm_tx_item_t));
-  if (rtcm_tx_queue == NULL) {
-    LOG_ERR("Failed to create RTCM TX queue");
-    return;
-  }
-
-  // Task 생성
-  BaseType_t ret = xTaskCreate(rtcm_tx_task, "rtcm_tx", 1024,
-                                NULL, tskIDLE_PRIORITY + 2, &rtcm_tx_task_handle);
-  if (ret != pdPASS) {
-    LOG_ERR("Failed to create RTCM TX task");
-    return;
-  }
-
-  LOG_INFO("RTCM TX task initialized");
+  // No task needed anymore - direct async transmission
+  LOG_INFO("RTCM async transmission initialized (no task)");
 }
 
 bool rtcm_send_to_lora(gps_t *gps) {
   if (!gps) {
     LOG_ERR("GPS handle is NULL");
-    return false;
-  }
-
-  if (!rtcm_tx_queue) {
-    LOG_ERR("RTCM TX queue not initialized");
     return false;
   }
 
@@ -128,34 +128,59 @@ bool rtcm_send_to_lora(gps_t *gps) {
     return false;
   }
 
-  // Prepare queue item
-  rtcm_tx_item_t item;
-  item.msg_type = gps->rtcm.msg_type;
-
-  // Copy RTCM raw binary data from payload
-  memcpy(item.data, gps->payload, rtcm_len);
-
-  // RAK4270 module constraint: raw data transmission requires even byte count
-  if (rtcm_len % 2 != 0) {
-    // Odd bytes -> Add 0x00 padding at the end
-    item.data[rtcm_len] = 0x00;
-    item.len = rtcm_len + 1;
-  } else {
-    item.len = rtcm_len;
-  }
-
-  // Check padded length (MUST be after padding calculation)
-  if (item.len > RTCM_MAX_LORA_SIZE) {
-    LOG_ERR("RTCM length too large after padding: %d > %d (max)", item.len, RTCM_MAX_LORA_SIZE);
+  // Check if there's already a transmission in progress
+  if (current_fragment_ctx != NULL) {
+    LOG_WARN("RTCM transmission already in progress, packet dropped (type=%d)", gps->rtcm.msg_type);
     return false;
   }
 
-  // 큐에 추가 (비동기, GPS Task 블록 안 됨!)
-  if (xQueueSend(rtcm_tx_queue, &item, 0) != pdTRUE) {
-    LOG_WARN("RTCM TX queue full, packet dropped (type=%d)", item.msg_type);
+  // Calculate total fragments needed
+  uint8_t total_fragments = (rtcm_len + RTCM_MAX_FRAGMENT_SIZE - 1) / RTCM_MAX_FRAGMENT_SIZE;
+
+  // Allocate context (includes data buffer)
+  size_t ctx_size = sizeof(rtcm_fragment_ctx_t) + rtcm_len;
+  rtcm_fragment_ctx_t *ctx = (rtcm_fragment_ctx_t *)pvPortMalloc(ctx_size);
+  if (!ctx) {
+    LOG_ERR("Failed to allocate fragment context");
     return false;
   }
 
-  // 즉시 리턴 (블록킹 없음!)
+  // Copy RTCM data to context (after struct)
+  uint8_t *data_copy = (uint8_t *)(ctx + 1);
+  memcpy(data_copy, gps->payload, rtcm_len);
+
+  // Initialize context
+  ctx->remaining_data = data_copy;
+  ctx->remaining_len = rtcm_len;
+  ctx->msg_type = gps->rtcm.msg_type;
+  ctx->fragment_idx = 1;
+  ctx->total_fragments = total_fragments;
+
+  current_fragment_ctx = ctx;
+
+  // Send first fragment
+  size_t fragment_len = (rtcm_len > RTCM_MAX_FRAGMENT_SIZE)
+                        ? RTCM_MAX_FRAGMENT_SIZE
+                        : rtcm_len;
+
+  uint32_t toa_ms = calculate_lora_toa(fragment_len);
+
+  LOG_INFO("RTCM TX: type=%d, len=%d, ToA=%dms", gps->rtcm.msg_type, rtcm_len, toa_ms);
+  LOG_INFO("Sending fragment 1/%d: %d bytes, ToA=%dms",
+           total_fragments, fragment_len, toa_ms);
+
+  if (!lora_send_p2p_raw_async(ctx->remaining_data, fragment_len, toa_ms,
+                                rtcm_fragment_callback, ctx)) {
+    LOG_ERR("Failed to queue first fragment");
+    vPortFree(ctx);
+    current_fragment_ctx = NULL;
+    return false;
+  }
+
+  // Update context for next fragment (if any)
+  ctx->remaining_data += fragment_len;
+  ctx->remaining_len -= fragment_len;
+
+  // Return immediately (non-blocking, async transmission)
   return true;
 }

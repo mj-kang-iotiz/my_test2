@@ -980,9 +980,10 @@ bool lora_send_p2p_raw(const uint8_t *data, size_t len, uint32_t timeout_ms)
     return false;
   }
 
-  if (len > 236)
+  // HEX conversion doubles the size, so max binary is 118 bytes (-> 236 HEX chars)
+  if (len > 118)
   {
-    LOG_ERR("Data too large: %d > 236", len);
+    LOG_ERR("Data too large: %d > 118 (max binary for HEX ASCII)", len);
     return false;
   }
 
@@ -1013,6 +1014,56 @@ bool lora_send_p2p_raw(const uint8_t *data, size_t len, uint32_t timeout_ms)
 
   // Use the standard command sending mechanism
   return lora_send_command_sync(cmd, timeout_ms);
+}
+
+bool lora_send_p2p_raw_async(const uint8_t *data, size_t len, uint32_t timeout_ms,
+                              lora_command_callback_t callback, void *user_data)
+{
+  if (!instance.initialized)
+  {
+    LOG_ERR("LoRa not initialized");
+    return false;
+  }
+
+  if (!data || len == 0)
+  {
+    LOG_ERR("NULL data or zero length");
+    return false;
+  }
+
+  // HEX conversion doubles the size, so max binary is 118 bytes (-> 236 HEX chars)
+  if (len > 118)
+  {
+    LOG_ERR("Data too large: %d > 118 (max binary for HEX ASCII)", len);
+    return false;
+  }
+
+  // Convert binary data to HEX ASCII string
+  // Each byte becomes 2 HEX characters, plus null terminator
+  char hex_string[512];  // 118 * 2 + 1 = 237 bytes max
+  if (len * 2 >= sizeof(hex_string))
+  {
+    LOG_ERR("HEX string buffer too small");
+    return false;
+  }
+
+  for (size_t i = 0; i < len; i++)
+  {
+    snprintf(&hex_string[i * 2], 3, "%02X", data[i]);
+  }
+  hex_string[len * 2] = '\0';
+
+  LOG_INFO("Sending raw P2P data (async): %d bytes -> %d HEX chars", len, len * 2);
+  if (len >= 4) {
+    LOG_INFO("First 4 bytes (binary): %02X %02X %02X %02X", data[0], data[1], data[2], data[3]);
+  }
+
+  // Create AT command: at+send=lorap2p:<HEX_STRING>\r\n
+  char cmd[600];
+  snprintf(cmd, sizeof(cmd), "at+send=lorap2p:%s\r\n", hex_string);
+
+  // Use async command sending mechanism
+  return lora_send_command_async(cmd, timeout_ms, callback, user_data, false);
 }
 
 void lora_set_p2p_recv_callback(lora_p2p_recv_callback_t callback, void *user_data)
