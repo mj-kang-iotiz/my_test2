@@ -44,9 +44,6 @@ static uint32_t calculate_lora_toa(size_t binary_bytes) {
   return toa_ms;
 }
 
-// Transmission in-progress flag
-static volatile bool rtcm_tx_in_progress = false;
-
 /**
  * @brief Callback for last fragment transmission completion
  */
@@ -58,9 +55,6 @@ static void rtcm_last_fragment_callback(bool success, void *user_data) {
   } else {
     LOG_ERR("RTCM last fragment transmission failed (type=%d)", msg_type);
   }
-
-  // Clear in-progress flag
-  rtcm_tx_in_progress = false;
 }
 
 void rtcm_tx_task_init(void) {
@@ -82,20 +76,11 @@ bool rtcm_send_to_lora(gps_t *gps) {
     return false;
   }
 
-  // Check if there's already a transmission in progress
-  if (rtcm_tx_in_progress) {
-    LOG_WARN("RTCM transmission in progress, packet dropped (type=%d)", gps->rtcm.msg_type);
-    return false;
-  }
-
   // Calculate total fragments needed
   uint8_t total_fragments = (rtcm_len + RTCM_MAX_FRAGMENT_SIZE - 1) / RTCM_MAX_FRAGMENT_SIZE;
 
   LOG_INFO("RTCM TX: type=%d, len=%d, fragments=%d",
            gps->rtcm.msg_type, rtcm_len, total_fragments);
-
-  // Set in-progress flag
-  rtcm_tx_in_progress = true;
 
   // Queue all fragments at once
   for (uint8_t i = 0; i < total_fragments; i++) {
@@ -109,15 +94,14 @@ bool rtcm_send_to_lora(gps_t *gps) {
     LOG_INFO("Queueing fragment %d/%d: %d bytes, ToA=%dms",
              i + 1, total_fragments, fragment_len, toa_ms);
 
-    // Last fragment gets callback to clear in-progress flag
+    // Last fragment gets callback for logging
     bool is_last = (i == total_fragments - 1);
     lora_command_callback_t callback = is_last ? rtcm_last_fragment_callback : NULL;
     void *user_data = is_last ? (void*)(uintptr_t)gps->rtcm.msg_type : NULL;
 
     if (!lora_send_p2p_raw_async(&gps->payload[offset], fragment_len, toa_ms,
                                   callback, user_data)) {
-      LOG_ERR("Failed to queue fragment %d/%d", i + 1, total_fragments);
-      rtcm_tx_in_progress = false;
+      LOG_ERR("Failed to queue fragment %d/%d - LoRa TX queue full?", i + 1, total_fragments);
       return false;
     }
   }

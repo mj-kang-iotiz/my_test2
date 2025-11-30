@@ -18,13 +18,14 @@ void rtcm_tx_task_init(void);
  *
  * - 완전 비동기 전송: 즉시 리턴 (GPS Task 블록 안 됨)
  * - HEX ASCII 변환으로 인해 최대 118바이트씩 전송
- * - 118바이트 초과 시 자동으로 여러 fragment로 분할 전송
- * - ToA(Time on Air) 자동 계산 (HEX 크기 기준: bytes * 2)
- * - Fragment 단위로 순차 전송 (callback chain 방식)
- * - 전송 중 새로운 RTCM 도착 시 drop (중복 전송 방지)
+ * - 118바이트 초과 시 자동으로 여러 fragment로 분할
+ * - ToA(Time on Air) 자동 계산: (bytes / 118) * 350ms * 1.2
+ * - 모든 fragment를 LoRa TX 큐에 추가 (순차 처리)
+ * - 모든 RTCM 타입 전송 (1074, 1084, 1124 등)
+ * - LoRa TX 큐가 가득 찬 경우에만 실패
  *
  * @param gps GPS 핸들
- * @return true: 전송 시작 성공, false: 전송 중이거나 에러
+ * @return true: 큐 추가 성공, false: 큐 full 또는 에러
  */
 bool rtcm_send_to_lora(gps_t *gps);
 
