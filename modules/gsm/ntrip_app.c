@@ -156,6 +156,10 @@ static void ntrip_gga_send_task(void *pvParameter) {
 static void ntrip_tcp_recv_task(void *pvParameter) {
   gsm_t *gsm = (gsm_t *)pvParameter;
   tcp_socket_t *sock = NULL;
+
+  // GPS_ID_BASE(0)로 RTCM 데이터 전송
+  // BOARD_TYPE_ROVER_F9P: GPS_ID_BASE(UART2)만 RTCM 수신, GPS_ID_ROVER(UART4)는 수신 안 함
+  // 다른 보드: GPS_ID_BASE(0)가 유일한 GPS 또는 메인 GPS
   gps_t *gps_handle = gps_get_instance_handle(0);
 
   int ret;
@@ -234,6 +238,8 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
       timeout_count = 0;
       LOG_INFO("수신 데이터 (%d bytes):", ret);
 
+      // RTCM 데이터를 GPS_ID_BASE로 전송
+      // BOARD_TYPE_ROVER_F9P: UART2(GPS_ID_BASE)로만 전송, UART4는 RTCM 불필요
       gps_handle->ops->send((const char *)recv_buf, ret);
     } else if (ret == 0) {
       // 타임아웃

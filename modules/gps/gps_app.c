@@ -394,8 +394,20 @@ void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
       }
 
       if (gps->nmea_data.gga_is_rdy) {
-        ntrip_send_gga_data(gps->nmea_data.gga_raw,
-                           gps->nmea_data.gga_raw_pos);
+        // BOARD_TYPE_ROVER_F9P일 때: GPS_ID_BASE(UART2)만 GGA 전송
+        // GPS_ID_ROVER(UART4)는 GGA를 NTRIP으로 전송하지 않음
+        const board_config_t *config = board_get_config();
+        if (config->board == BOARD_TYPE_ROVER_F9P) {
+          if (inst->id == GPS_ID_BASE) {
+            ntrip_send_gga_data(gps->nmea_data.gga_raw,
+                               gps->nmea_data.gga_raw_pos);
+          }
+          // GPS_ID_ROVER는 GGA 전송 스킵
+        } else {
+          // 다른 보드는 기존대로 전송
+          ntrip_send_gga_data(gps->nmea_data.gga_raw,
+                             gps->nmea_data.gga_raw_pos);
+        }
       }
     }
     break;
