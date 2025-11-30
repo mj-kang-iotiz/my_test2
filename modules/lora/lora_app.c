@@ -3,6 +3,7 @@
 #include "lora_port.h"
 #include "board_config.h"
 #include "gps_app.h"
+#include "rtcm_rx.h"
 #include "semphr.h"
 #include <string.h>
 #include <stdio.h>
@@ -648,21 +649,11 @@ static void lora_process_task(void *pvParameter)
             else
             {
 
-              // 콜백이 없으면 GPS로 자동 전송 (RTCM 데이터)
+              // 콜백이 없으면 RTCM fragment로 처리 (재조합 후 GPS 전송)
 
-              gps_t *gps = gps_get_instance_handle(GPS_ID_BASE);
-
-              if (gps && gps->ops && gps->ops->send)
-              {
-
-                xSemaphoreTake(gps->mutex, portMAX_DELAY);
-
-                gps->ops->send(recv_data.data, recv_data.data_len);
-
-                xSemaphoreGive(gps->mutex);
-
-                LOG_INFO("P2P data forwarded to GPS (%d bytes)", recv_data.data_len);
-              }
+              rtcm_rx_process_fragment((const uint8_t*)recv_data.data,
+                                        recv_data.data_len,
+                                        GPS_ID_BASE);
             }
           }
         }
@@ -722,19 +713,11 @@ static void lora_process_task(void *pvParameter)
             else
             {
 
-              gps_t *gps = gps_get_instance_handle(GPS_ID_BASE);
+              // 콜백이 없으면 RTCM fragment로 처리 (재조합 후 GPS 전송)
 
-              if (gps && gps->ops && gps->ops->send)
-              {
-
-                xSemaphoreTake(gps->mutex, portMAX_DELAY);
-
-                gps->ops->send(recv_data.data, recv_data.data_len);
-
-                xSemaphoreGive(gps->mutex);
-
-                LOG_INFO("P2P data forwarded to GPS (%d bytes)", recv_data.data_len);
-              }
+              rtcm_rx_process_fragment((const uint8_t*)recv_data.data,
+                                        recv_data.data_len,
+                                        GPS_ID_BASE);
             }
           }
         }
@@ -811,6 +794,9 @@ void lora_instance_init(void)
   }
 
   instance.initialized = true;
+
+  // RTCM RX 초기화
+  rtcm_rx_init();
 
   LOG_INFO("LORA 인스턴스 초기화 완료");
 }
