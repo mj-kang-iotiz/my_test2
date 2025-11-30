@@ -986,86 +986,33 @@ bool lora_send_p2p_raw(const uint8_t *data, size_t len, uint32_t timeout_ms)
     return false;
   }
 
-  // Create semaphore for OK/ERROR response
-  SemaphoreHandle_t response_sem = xSemaphoreCreateBinary();
-  if (response_sem == NULL)
+  // Convert binary data to HEX ASCII string
+  // Each byte becomes 2 HEX characters, plus null terminator
+  char hex_string[512];  // 236 * 2 + 1 = 473 bytes max
+  if (len * 2 >= sizeof(hex_string))
   {
-    LOG_ERR("Failed to create semaphore");
+    LOG_ERR("HEX string buffer too small");
     return false;
   }
 
-  bool result = false;
-
-  // Prepare AT command header: "at+send=lorap2p:"
-  const char *at_header = "at+send=lorap2p:";
-  const char *at_footer = "\r\n";
-
-  // Create command request for RX task to process response
-  lora_cmd_request_t cmd_req = {
-      .timeout_ms = timeout_ms,
-      .is_async = false,
-      .skip_response = false,
-      .response_sem = response_sem,
-      .result = &result,
-      .callback = NULL,
-      .user_data = NULL,
-  };
-  cmd_req.cmd[0] = '\0'; // Mark as raw binary send
-
-  LOG_INFO("Sending raw P2P data: %d bytes", len);
-
-  // Direct UART transmission
-  if (!instance.lora.ops || !instance.lora.ops->send)
+  for (size_t i = 0; i < len; i++)
   {
-    LOG_ERR("LoRa send ops not available");
-    vSemaphoreDelete(response_sem);
-    return false;
+    snprintf(&hex_string[i * 2], 3, "%02X", data[i]);
   }
+  hex_string[len * 2] = '\0';
 
-  // Register this request so RX task can handle response
-  instance.current_cmd_req = &cmd_req;
-
-  // Take mutex to protect UART
-  xSemaphoreTake(instance.mutex, portMAX_DELAY);
-
-  LOG_INFO("UART sending: header + %d bytes + footer", len);
-
-  // Send AT header
-  instance.lora.ops->send(at_header, strlen(at_header));
-
-  // Send raw binary data (첫 4바이트만 로그)
+  LOG_INFO("Sending raw P2P data: %d bytes -> %d HEX chars", len, len * 2);
   if (len >= 4) {
-    LOG_INFO("First 4 bytes: %02X %02X %02X %02X", data[0], data[1], data[2], data[3]);
-  }
-  instance.lora.ops->send((const char *)data, len);
-
-  // Send footer
-  instance.lora.ops->send(at_footer, strlen(at_footer));
-
-  xSemaphoreGive(instance.mutex);
-
-  LOG_INFO("UART transmission complete, waiting for response...");
-
-  // Wait for OK/ERROR response from RX task
-  if (xSemaphoreTake(response_sem, pdMS_TO_TICKS(timeout_ms)) == pdTRUE)
-  {
-    // Response received (OK or ERROR)
-    LOG_INFO("Raw P2P response: %s", result ? "OK" : "ERROR");
-  }
-  else
-  {
-    // Timeout - no response
-    LOG_WARN("Raw P2P timeout - no response");
-    result = false;
+    LOG_INFO("First 4 bytes (binary): %02X %02X %02X %02X", data[0], data[1], data[2], data[3]);
+    LOG_INFO("First 8 HEX chars: %.8s", hex_string);
   }
 
-  // Clear current request
-  instance.current_cmd_req = NULL;
+  // Create AT command: at+send=lorap2p:<HEX_STRING>\r\n
+  char cmd[600];
+  snprintf(cmd, sizeof(cmd), "at+send=lorap2p:%s\r\n", hex_string);
 
-  // Delete semaphore
-  vSemaphoreDelete(response_sem);
-
-  return result;
+  // Use the standard command sending mechanism
+  return lora_send_command_sync(cmd, timeout_ms);
 }
 
 void lora_set_p2p_recv_callback(lora_p2p_recv_callback_t callback, void *user_data)
