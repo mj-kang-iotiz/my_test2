@@ -33,6 +33,7 @@
 #include "lora_app.h"
 #include "rtcm.h"
 #include "led.h"
+#include "rtcm.h"
 #include "queue.h"
 #include "semphr.h"
 #include "task.h"
@@ -102,7 +103,6 @@ void initThread(void *pvParameter) {
   lora_instance_init();
   rtcm_tx_task_init();
 //  lora_start_tx_test();
-
 //  lora_uart3_hw_init();
 //  lora_uart3_comm_start();
 //  lora_uart3_send("at+help\r\n", 9);
@@ -136,6 +136,7 @@ int main(void) {
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
+  SEGGER_SYSVIEW_DisableEvents(SYSVIEW_EVTMASK_ISR_ENTER | SYSVIEW_EVTMASK_ISR_EXIT);
 
   traceSTART();
   /* USER CODE END SysInit */

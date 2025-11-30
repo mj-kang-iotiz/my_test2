@@ -232,7 +232,7 @@ static void gsm_process_task(void *pvParameter) {
         size_t len = pos - old_pos;
         total_received = len;
         LOG_DEBUG("RX: %u bytes", len);
-        LOG_DEBUG_RAW("RAW: ", &gsm_mem[old_pos], len);
+//        LOG_DEBUG_RAW("RAW: ", &gsm_mem[old_pos], len);
         gsm_parse_process(&gsm_handle, &gsm_mem[old_pos], pos - old_pos);
       } else {
         size_t len1 = sizeof(gsm_mem) - old_pos;
@@ -240,11 +240,11 @@ static void gsm_process_task(void *pvParameter) {
         total_received = len1 + len2;
         LOG_DEBUG("RX: %u bytes (wrapped: %u+%u)", total_received, len1, len2);
 
-        LOG_DEBUG_RAW("RAW: ", &gsm_mem[old_pos], len1);
+//        LOG_DEBUG_RAW("RAW: ", &gsm_mem[old_pos], len1);
         gsm_parse_process(&gsm_handle, &gsm_mem[old_pos],
                           sizeof(gsm_mem) - old_pos);
         if (pos > 0) {
-          LOG_DEBUG_RAW("RAW: ", gsm_mem, len2);
+//          LOG_DEBUG_RAW("RAW: ", gsm_mem, len2);
 
           gsm_parse_process(&gsm_handle, gsm_mem, pos);
         }

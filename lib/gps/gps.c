@@ -200,14 +200,12 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
       }
       /* RTCM3 */
       else if(*d == 0xD3 && gps->state == GPS_PARSE_STATE_NONE) {
-    	  printf("d - data = %ld  %u\n", d - (uint8_t*)data, *d);
         memset(&gps->rtcm, 0, sizeof(gps->rtcm));
         memset(gps->payload, 0, sizeof(gps->payload));
         gps->pos = 0;
         add_payload(gps, *d);
         gps->protocol = GPS_PROTOCOL_RTCM;
         gps->state = GPS_PARSE_STATE_RTCM_PREAMBLE;
-        printf("d - data = %ld\n", d - (uint8_t*)data);
       }
       else {
         gps->state = GPS_PARSE_STATE_NONE;
@@ -347,7 +345,6 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
     }
     else if (gps->protocol == GPS_PROTOCOL_RTCM) {
       add_payload(gps, *d);
-      printf("d - data = %ld  %u\n", d - (uint8_t*)data, *d);
       if (gps->state == GPS_PARSE_STATE_RTCM_PREAMBLE) {
         // 프리앰블 이미 받음, 다음은 길이 필드 1바이트
     	gps->rtcm.msg_len = (*d & 0x03) << 8;
@@ -374,7 +371,7 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
 
         // 페이로드 + CRC까지 모두 받았는지 확인
         // pos는 0부터 시작하므로, 전체 길이-1과 비교
-        if (gps->pos >= gps->rtcm.total_len - 1) {
+        if (gps->pos >= gps->rtcm.total_len) {
           // RTCM 패킷 완료
           gps_msg_t msg;
           msg.rtcm.msg_type = gps->rtcm.msg_type;

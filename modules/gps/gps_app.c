@@ -4,6 +4,7 @@
 #include "gps_port.h"
 #include "gps_unicore.h"
 #include "ntrip_app.h"
+#include "rtcm.h"
 #include "led.h"
 #include "rtcm.h"
 #include <string.h>
@@ -612,9 +613,9 @@ static void gps_process_task(void *pvParameter) {
     }
     xSemaphoreGive(inst->gps.mutex);
 
-    if (get_gga(&inst->gps, my_test, &my_len)) {
-      LOG_ERR("[ID:%d]%s", id, my_test);
-    }
+//    if (get_gga(&inst->gps, my_test, &my_len)) {
+//      LOG_ERR("[ID:%d]%s", id, my_test);
+//    }
   }
 
   vTaskDelete(NULL);
@@ -685,7 +686,7 @@ void gps_init_all(void) {
     snprintf(task_name, sizeof(task_name), "gps_rx_%d", i);
 
     BaseType_t ret =
-        xTaskCreate(gps_process_task, task_name, 2048,
+        xTaskCreate(gps_process_task, task_name, 1024,
                     (void *)(uintptr_t)i, // GPS ID를 파라미터로 전달
                     tskIDLE_PRIORITY + 1, &gps_instances[i].task);
 
@@ -696,7 +697,7 @@ void gps_init_all(void) {
     }
 
     snprintf(task_name, sizeof(task_name), "gps_tx_%d", i);
-    ret = xTaskCreate(gps_tx_task, task_name, 2048,
+    ret = xTaskCreate(gps_tx_task, task_name, 512,
                       (void *)(uintptr_t)i, // GPS ID를 파라미터로 전달
                       tskIDLE_PRIORITY + 1, &gps_instances[i].tx_task);
 
