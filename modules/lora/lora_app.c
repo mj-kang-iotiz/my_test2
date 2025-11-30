@@ -437,6 +437,9 @@ static void lora_tx_task(void *pvParameter)
         *(cmd_req.result) = false;
       }
 
+      // 시작 시간 기록 (ToA 계산용)
+      TickType_t start_tick = xTaskGetTickCount();
+
       // 명령어 전송 (UART 충돌 방지를 위해 mutex 사용)
       if (instance.lora.ops && instance.lora.ops->send)
       {
@@ -498,12 +501,24 @@ static void lora_tx_task(void *pvParameter)
                      *(cmd_req.result) ? "OK" : "ERROR");
           }
 
-          // ToA 대기: OK 응답은 명령어 수신 완료일 뿐, 실제 LoRa 전파 전송은 이제 시작
-          // ToA만큼 추가 대기하여 전파 전송 완료 보장
+          // ToA 대기: AT 명령어 전송 시작 시점부터 ToA 경과 보장
           if (cmd_req.toa_ms > 0)
           {
-            LOG_INFO("Waiting ToA %dms for LoRa transmission", cmd_req.toa_ms);
-            vTaskDelay(pdMS_TO_TICKS(cmd_req.toa_ms));
+            TickType_t elapsed_tick = xTaskGetTickCount() - start_tick;
+            uint32_t elapsed_ms = elapsed_tick * 1000 / configTICK_RATE_HZ;
+
+            if (elapsed_ms < cmd_req.toa_ms)
+            {
+              uint32_t remaining_ms = cmd_req.toa_ms - elapsed_ms;
+              LOG_INFO("Waiting remaining ToA %dms (elapsed=%dms, total=%dms)",
+                       remaining_ms, elapsed_ms, cmd_req.toa_ms);
+              vTaskDelay(pdMS_TO_TICKS(remaining_ms));
+            }
+            else
+            {
+              LOG_INFO("ToA already satisfied: elapsed=%dms >= ToA=%dms",
+                       elapsed_ms, cmd_req.toa_ms);
+            }
           }
         }
         else
@@ -1067,12 +1082,19 @@ bool lora_send_p2p_raw_async(const uint8_t *data, size_t len, uint32_t timeout_m
     LOG_INFO("First 4 bytes (binary): %02X %02X %02X %02X", data[0], data[1], data[2], data[3]);
   }
 
+  // Calculate ToA (Time on Air): (bytes / 118) * 350ms * 1.2
+  uint32_t toa_ms = (len * 350 / 118);  // Base ToA
+  toa_ms = toa_ms * 12 / 10;  // Add 20% margin (x1.2)
+  if (toa_ms < 60) {
+    toa_ms = 60;  // Minimum ToA
+  }
+
   // Create AT command: at+send=lorap2p:<HEX_STRING>\r\n
   char cmd[600];
   snprintf(cmd, sizeof(cmd), "at+send=lorap2p:%s\r\n", hex_string);
 
   // Use async command sending mechanism
-  return lora_send_command_async(cmd, timeout_ms, timeout_ms, callback, user_data, false);
+  return lora_send_command_async(cmd, timeout_ms, toa_ms, callback, user_data, false);
 }
 
 void lora_set_p2p_recv_callback(lora_p2p_recv_callback_t callback, void *user_data)
