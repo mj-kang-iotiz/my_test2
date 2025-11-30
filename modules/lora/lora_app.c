@@ -430,7 +430,10 @@ static void rtcm_reassembly_reset(rtcm_reassembly_t *reasm)
 }
 
 /**
- * @brief RTCM fragment 처리 및 재조립
+ * @brief RTCM fragment 처리 및 재조립 (개선된 버전)
+ *
+ * - Preamble(0xD3) 자동 탐색
+ * - 완료 후 남은 데이터 자동 보존
  *
  * @param reasm 재조립 버퍼
  * @param data 수신된 fragment 데이터
@@ -467,30 +470,72 @@ static bool rtcm_reassembly_process(rtcm_reassembly_t *reasm, const uint8_t *dat
 
   LOG_INFO("RTCM fragment received: %d bytes, total: %d bytes", len, reasm->buffer_pos);
 
-  // 헤더 파싱 (최소 3바이트 필요: preamble + reserved+len)
-  if (!reasm->has_header && reasm->buffer_pos >= 3)
+  // 헤더가 없으면 Preamble 스캔
+  if (!reasm->has_header)
   {
-    // Preamble 확인
-    if (reasm->buffer[0] != 0xD3)
+    // 0xD3(Preamble)를 찾을 때까지 스캔
+    size_t preamble_pos = 0;
+    bool found = false;
+
+    for (size_t i = 0; i < reasm->buffer_pos; i++)
     {
-      LOG_ERR("Invalid RTCM preamble: 0x%02X - resetting", reasm->buffer[0]);
-      rtcm_reassembly_reset(reasm);
+      if (reasm->buffer[i] == 0xD3)
+      {
+        preamble_pos = i;
+        found = true;
+        LOG_INFO("RTCM preamble found at offset %d", i);
+        break;
+      }
+    }
+
+    if (!found)
+    {
+      // Preamble을 못 찾으면 마지막 바이트만 남기고 버림
+      // (다음 fragment에서 0xD3가 올 수 있음)
+      if (reasm->buffer_pos > 1)
+      {
+        LOG_WARN("No preamble found, keeping last byte");
+        reasm->buffer[0] = reasm->buffer[reasm->buffer_pos - 1];
+        reasm->buffer_pos = 1;
+      }
       return false;
     }
 
-    // Payload 길이 파싱 (10 bits)
-    uint16_t payload_len = ((reasm->buffer[1] & 0x03) << 8) | reasm->buffer[2];
-    reasm->expected_len = 3 + payload_len + 3; // header(3) + payload + CRC(3)
-    reasm->has_header = true;
+    // Preamble이 중간에 있으면 앞으로 이동
+    if (preamble_pos > 0)
+    {
+      LOG_INFO("Moving preamble from offset %d to start", preamble_pos);
+      memmove(reasm->buffer, &reasm->buffer[preamble_pos], reasm->buffer_pos - preamble_pos);
+      reasm->buffer_pos -= preamble_pos;
+    }
 
-    LOG_INFO("RTCM header parsed: payload=%d bytes, expected total=%d bytes",
-             payload_len, reasm->expected_len);
+    // 헤더 파싱 시도 (최소 3바이트 필요: preamble + reserved+len)
+    if (reasm->buffer_pos >= 3)
+    {
+      // Payload 길이 파싱 (10 bits)
+      uint16_t payload_len = ((reasm->buffer[1] & 0x03) << 8) | reasm->buffer[2];
+      reasm->expected_len = 3 + payload_len + 3; // header(3) + payload + CRC(3)
+      reasm->has_header = true;
+
+      LOG_INFO("RTCM header parsed: payload=%d bytes, expected total=%d bytes",
+               payload_len, reasm->expected_len);
+
+      // 예상 길이가 비정상적으로 크면 리셋
+      if (reasm->expected_len > RTCM_REASSEMBLY_BUF_SIZE)
+      {
+        LOG_ERR("Invalid RTCM length: %d > %d - resetting",
+                reasm->expected_len, RTCM_REASSEMBLY_BUF_SIZE);
+        rtcm_reassembly_reset(reasm);
+        return false;
+      }
+    }
   }
 
   // 완전한 패킷 수신 체크
   if (reasm->has_header && reasm->buffer_pos >= reasm->expected_len)
   {
-    LOG_INFO("RTCM packet reassembly complete: %d bytes", reasm->expected_len);
+    LOG_INFO("RTCM packet reassembly complete: %d bytes (buffer has %d bytes)",
+             reasm->expected_len, reasm->buffer_pos);
     return true;
   }
 
@@ -861,8 +906,28 @@ static void lora_process_task(void *pvParameter)
                   LOG_ERR("Invalid RTCM packet - discarding");
                 }
 
-                // 재조립 버퍼 초기화 (다음 패킷 대기)
-                rtcm_reassembly_reset(&instance.rtcm_reassembly);
+                // 남은 데이터 처리 (다음 RTCM 패킷의 시작일 수 있음)
+                if (instance.rtcm_reassembly.buffer_pos > instance.rtcm_reassembly.expected_len)
+                {
+                  size_t remaining = instance.rtcm_reassembly.buffer_pos - instance.rtcm_reassembly.expected_len;
+                  LOG_INFO("Remaining %d bytes in buffer - moving to front", remaining);
+
+                  // 남은 데이터를 버퍼 앞으로 이동
+                  memmove(instance.rtcm_reassembly.buffer,
+                          &instance.rtcm_reassembly.buffer[instance.rtcm_reassembly.expected_len],
+                          remaining);
+                  instance.rtcm_reassembly.buffer_pos = remaining;
+                  instance.rtcm_reassembly.has_header = false;
+                  instance.rtcm_reassembly.expected_len = 0;
+
+                  // 남은 데이터로 다음 패킷 시작 시도
+                  // (재귀 호출 대신 다음 수신에서 처리됨)
+                }
+                else
+                {
+                  // 남은 데이터가 없으면 완전히 초기화
+                  rtcm_reassembly_reset(&instance.rtcm_reassembly);
+                }
               }
             }
           }
@@ -950,8 +1015,28 @@ static void lora_process_task(void *pvParameter)
                   LOG_ERR("Invalid RTCM packet - discarding (wrap)");
                 }
 
-                // 재조립 버퍼 초기화 (다음 패킷 대기)
-                rtcm_reassembly_reset(&instance.rtcm_reassembly);
+                // 남은 데이터 처리 (다음 RTCM 패킷의 시작일 수 있음)
+                if (instance.rtcm_reassembly.buffer_pos > instance.rtcm_reassembly.expected_len)
+                {
+                  size_t remaining = instance.rtcm_reassembly.buffer_pos - instance.rtcm_reassembly.expected_len;
+                  LOG_INFO("Remaining %d bytes in buffer - moving to front (wrap)", remaining);
+
+                  // 남은 데이터를 버퍼 앞으로 이동
+                  memmove(instance.rtcm_reassembly.buffer,
+                          &instance.rtcm_reassembly.buffer[instance.rtcm_reassembly.expected_len],
+                          remaining);
+                  instance.rtcm_reassembly.buffer_pos = remaining;
+                  instance.rtcm_reassembly.has_header = false;
+                  instance.rtcm_reassembly.expected_len = 0;
+
+                  // 남은 데이터로 다음 패킷 시작 시도
+                  // (재귀 호출 대신 다음 수신에서 처리됨)
+                }
+                else
+                {
+                  // 남은 데이터가 없으면 완전히 초기화
+                  rtcm_reassembly_reset(&instance.rtcm_reassembly);
+                }
               }
             }
           }
