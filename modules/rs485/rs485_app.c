@@ -37,12 +37,9 @@ static void rs485_tx_task(void *pvParameter) {
       if (inst->rs485.ops && inst->rs485.ops->send) {
         if (inst->rs485.ops->tx_enable) {
           inst->rs485.ops->tx_enable();
-          vTaskDelay(pdMS_TO_TICKS(1));
         }
 
         inst->rs485.ops->send(tx_req.data, tx_req.len);
-
-        vTaskDelay(pdMS_TO_TICKS(1));
 
         if (inst->rs485.ops->rx_enable) {
           inst->rs485.ops->rx_enable();
