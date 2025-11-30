@@ -974,7 +974,7 @@ bool lora_send_p2p_raw(const uint8_t *data, size_t len, uint32_t timeout_ms)
     return false;
   }
 
-  // Create semaphore for response
+  // Create semaphore for OK/ERROR response
   SemaphoreHandle_t response_sem = xSemaphoreCreateBinary();
   if (response_sem == NULL)
   {
@@ -988,27 +988,7 @@ bool lora_send_p2p_raw(const uint8_t *data, size_t len, uint32_t timeout_ms)
   const char *at_header = "at+send=lorap2p:";
   const char *at_footer = "\r\n";
 
-  // Calculate total size: header + data + footer
-  size_t total_len = strlen(at_header) + len + strlen(at_footer);
-
-  // Allocate buffer
-  uint8_t *cmd_buf = (uint8_t *)pvPortMalloc(total_len);
-  if (!cmd_buf)
-  {
-    LOG_ERR("Failed to allocate buffer");
-    vSemaphoreDelete(response_sem);
-    return false;
-  }
-
-  // Build command: "at+send=lorap2p:" + [raw binary] + "\r\n"
-  size_t offset = 0;
-  memcpy(&cmd_buf[offset], at_header, strlen(at_header));
-  offset += strlen(at_header);
-  memcpy(&cmd_buf[offset], data, len);
-  offset += len;
-  memcpy(&cmd_buf[offset], at_footer, strlen(at_footer));
-
-  // Create command request
+  // Create command request for RX task to process response
   lora_cmd_request_t cmd_req = {
       .timeout_ms = timeout_ms,
       .is_async = false,
@@ -1018,35 +998,20 @@ bool lora_send_p2p_raw(const uint8_t *data, size_t len, uint32_t timeout_ms)
       .callback = NULL,
       .user_data = NULL,
   };
+  cmd_req.cmd[0] = '\0'; // Mark as raw binary send
 
-  // Note: cmd field is char[256], but we're sending binary data via UART directly
-  // We'll send via ops->send() in TX task, so mark this specially
-  cmd_req.cmd[0] = '\0'; // Empty string marker
-
-  // Send to TX task queue
-  if (xQueueSend(instance.cmd_queue, &cmd_req, pdMS_TO_TICKS(1000)) != pdTRUE)
-  {
-    LOG_ERR("Failed to send command to TX task");
-    vPortFree(cmd_buf);
-    vSemaphoreDelete(response_sem);
-    return false;
-  }
-
-  // TX task needs access to our buffer - this is a problem!
-  // We need a different approach...
-
-  vPortFree(cmd_buf);
-  vSemaphoreDelete(response_sem);
-
-  // Alternative: Send directly without going through TX task queue
   LOG_INFO("Sending raw P2P data: %d bytes", len);
 
   // Direct UART transmission
   if (!instance.lora.ops || !instance.lora.ops->send)
   {
     LOG_ERR("LoRa send ops not available");
+    vSemaphoreDelete(response_sem);
     return false;
   }
+
+  // Register this request so RX task can handle response
+  instance.current_cmd_req = &cmd_req;
 
   // Take mutex to protect UART
   xSemaphoreTake(instance.mutex, portMAX_DELAY);
@@ -1062,11 +1027,26 @@ bool lora_send_p2p_raw(const uint8_t *data, size_t len, uint32_t timeout_ms)
 
   xSemaphoreGive(instance.mutex);
 
-  // Wait for OK response (simplified - just delay)
-  vTaskDelay(pdMS_TO_TICKS(timeout_ms));
+  // Wait for OK/ERROR response from RX task
+  if (xSemaphoreTake(response_sem, pdMS_TO_TICKS(timeout_ms)) == pdTRUE)
+  {
+    // Response received (OK or ERROR)
+    LOG_INFO("Raw P2P response: %s", result ? "OK" : "ERROR");
+  }
+  else
+  {
+    // Timeout - no response
+    LOG_WARN("Raw P2P timeout - no response");
+    result = false;
+  }
 
-  LOG_INFO("Raw P2P data sent");
-  return true;
+  // Clear current request
+  instance.current_cmd_req = NULL;
+
+  // Delete semaphore
+  vSemaphoreDelete(response_sem);
+
+  return result;
 }
 
 void lora_set_p2p_recv_callback(lora_p2p_recv_callback_t callback, void *user_data)
