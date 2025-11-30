@@ -34,8 +34,8 @@
 #define USE_GSM 1
 #elif defined(BOARD_TYPE_ROVER_UBLOX)
 #define BOARD_TYPE BOARD_TYPE_ROVER_F9P
-#define GPS1_TYPE GPS_TYPE_F9P
-#define GPS2_TYPE GPS_TYPE_F9P
+#define GPS1_TYPE GPS_TYPE_F9P ///< base
+#define GPS2_TYPE GPS_TYPE_F9P ///< rover
 #define GPS_CNT 2
 #define LORA_MODE LORA_MODE_ROVER
 #define USE_BLE 0

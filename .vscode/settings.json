@@ -20,6 +20,7 @@
         "gps_ubx.h": "c",
         "stm32f4xx_ll_dma.h": "c",
         "board_config.h": "c",
-        "led.h": "c"
+        "led.h": "c",
+        "stdbool.h": "c"
     }
 }

@@ -393,10 +393,23 @@ void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
                           gps->nmea_data.gga.alt);
       }
 
-      if (gps->nmea_data.gga_is_rdy) {
-        ntrip_send_gga_data(gps->nmea_data.gga_raw,
-                           gps->nmea_data.gga_raw_pos);
-      }
+      if (gps->nmea_data.gga_is_rdy)
+      {
+        const board_config_t *config = board_get_config();
+        if(config->board == BOARD_TYPE_ROVER_F9P)
+        {
+          if(inst->id == GPS_ID_BASE)
+          {
+             ntrip_send_gga_data(gps->nmea_data.gga_raw,
+                               gps->nmea_data.gga_raw_pos);
+          }
+        }
+        else
+        {
+          ntrip_send_gga_data(gps->nmea_data.gga_raw,
+                            gps->nmea_data.gga_raw_pos);
+        }
+      } 
     }
     break;
 
@@ -432,7 +445,7 @@ void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
   case GPS_PROTOCOL_RTCM:
       rtcm_send_to_lora(gps);
       break;
-      
+
   default:
     break;
   }
