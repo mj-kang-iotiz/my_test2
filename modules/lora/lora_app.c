@@ -1016,16 +1016,23 @@ bool lora_send_p2p_raw(const uint8_t *data, size_t len, uint32_t timeout_ms)
   // Take mutex to protect UART
   xSemaphoreTake(instance.mutex, portMAX_DELAY);
 
+  LOG_INFO("UART sending: header + %d bytes + footer", len);
+
   // Send AT header
   instance.lora.ops->send(at_header, strlen(at_header));
 
-  // Send raw binary data
+  // Send raw binary data (첫 4바이트만 로그)
+  if (len >= 4) {
+    LOG_INFO("First 4 bytes: %02X %02X %02X %02X", data[0], data[1], data[2], data[3]);
+  }
   instance.lora.ops->send((const char *)data, len);
 
   // Send footer
   instance.lora.ops->send(at_footer, strlen(at_footer));
 
   xSemaphoreGive(instance.mutex);
+
+  LOG_INFO("UART transmission complete, waiting for response...");
 
   // Wait for OK/ERROR response from RX task
   if (xSemaphoreTake(response_sem, pdMS_TO_TICKS(timeout_ms)) == pdTRUE)
