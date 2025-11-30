@@ -32,33 +32,6 @@ static uint32_t calculate_lora_toa(size_t bytes) {
   return toa_ms;
 }
 
-/**
- * @brief Convert binary data to HEX string
- *
- * @param data Input binary data
- * @param len Input data length (bytes)
- * @param hex_str Output HEX string buffer
- * @param hex_str_size Output buffer size
- * @return true Success, false Failure
- */
-static bool binary_to_hex_string(const uint8_t *data, size_t len, char *hex_str, size_t hex_str_size) {
-  if (!data || !hex_str || len == 0) {
-    return false;
-  }
-
-  // HEX string requires 2 chars per byte + NULL terminator
-  if (hex_str_size < (len * 2 + 1)) {
-    LOG_ERR("HEX string buffer too small: %d < %d", hex_str_size, len * 2 + 1);
-    return false;
-  }
-
-  for (size_t i = 0; i < len; i++) {
-    snprintf(&hex_str[i * 2], 3, "%02X", data[i]);
-  }
-
-  return true;
-}
-
 bool rtcm_send_to_lora(gps_t *gps) {
   if (!gps) {
     LOG_ERR("GPS handle is NULL");
@@ -73,11 +46,11 @@ bool rtcm_send_to_lora(gps_t *gps) {
     return false;
   }
 
-  // Add padding for odd-byte data
+  // Add padding for odd-byte data (RAK4270 raw binary constraint)
   size_t actual_len = rtcm_len;
   uint8_t padded_data[RTCM_MAX_LORA_SIZE + 1];
 
-  // Copy RTCM data from payload
+  // Copy RTCM raw binary data from payload
   memcpy(padded_data, gps->payload, rtcm_len);
 
   // RAK4270 module constraint: raw data transmission requires even byte count
@@ -94,27 +67,18 @@ bool rtcm_send_to_lora(gps_t *gps) {
     return false;
   }
 
-  // Convert binary data to HEX string
-  // HEX string size: actual_len * 2 + 1 (NULL terminator)
-  char hex_str[RTCM_MAX_LORA_SIZE * 2 + 3];  // Sufficient buffer size
-
-  if (!binary_to_hex_string(padded_data, actual_len, hex_str, sizeof(hex_str))) {
-    LOG_ERR("Failed to convert RTCM to HEX string");
-    return false;
-  }
-
   // Calculate Time on Air (ToA) for this packet
   uint32_t toa_ms = calculate_lora_toa(actual_len);
 
-  // Send via LoRa P2P with ToA-based timeout
-  // Note: lora_send_p2p_data() internally checks if LoRa is initialized
-  LOG_INFO("Sending RTCM to LoRa: type=%d, len=%d, padded_len=%d, ToA=%dms",
+  // Send raw binary via LoRa P2P (no HEX conversion!)
+  LOG_INFO("Sending RTCM to LoRa (RAW): type=%d, len=%d, padded_len=%d, ToA=%dms",
            gps->rtcm.msg_type, rtcm_len, actual_len, toa_ms);
 
   // Record start time
   TickType_t start_tick = xTaskGetTickCount();
 
-  if (!lora_send_p2p_data(hex_str, toa_ms)) {
+  // Send raw binary data directly (at+send=lorap2p:[raw binary]\r\n)
+  if (!lora_send_p2p_raw(padded_data, actual_len, toa_ms)) {
     LOG_ERR("Failed to send RTCM via LoRa");
     return false;
   }

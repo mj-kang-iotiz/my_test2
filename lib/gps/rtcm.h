@@ -6,12 +6,13 @@
 #include "gps.h"
 
 /**
- * @brief RTCM 데이터를 LoRa로 전송
+ * @brief RTCM 데이터를 LoRa로 전송 (Raw Binary)
  *
  * - LoRa가 초기화된 경우에만 전송
- * - 최대 236바이트까지 전송 가능
+ * - 최대 236바이트까지 전송 가능 (HEX 방식은 118바이트만 가능)
  * - 홀수 바이트인 경우 0x00 패딩 추가 (RAK4270 모듈 제약)
- * - Raw 데이터를 HEX string으로 변환하여 전송
+ * - Raw binary 데이터 직접 전송 (HEX 변환 없음)
+ * - at+send=lorap2p:[raw binary]\r\n 형식으로 UART 전송
  *
  * @param gps GPS 핸들
  * @return true 성공, false 실패
