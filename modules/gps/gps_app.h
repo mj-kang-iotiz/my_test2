@@ -10,8 +10,21 @@
 
 typedef void (*gps_command_callback_t)(bool success, void *user_data);
 
+typedef enum {
+  GPS_CMD_TYPE_STRING = 0,  // 문자열 명령어 (기존)
+  GPS_CMD_TYPE_RAW_DATA = 1 // Raw binary 데이터 (RTCM 등)
+} gps_cmd_type_t;
+
 typedef struct {
-  char cmd[128];                  // 전송할 명령어
+  gps_cmd_type_t cmd_type;        // 명령어 타입
+  union {
+    char cmd[128];                // 문자열 명령어
+    struct {
+      uint8_t data[1024];         // Raw binary 데이터
+      uint16_t data_len;          // 데이터 길이
+    } raw;
+  };
+
   uint32_t timeout_ms;            // 타임아웃 (ms)
   bool is_async;                  // true: 비동기, false: 동기
 
@@ -26,6 +39,19 @@ typedef struct {
 bool gps_send_command_sync(gps_id_t id, const char *cmd, uint32_t timeout_ms);
 bool gps_send_command_async(gps_id_t id, const char *cmd, uint32_t timeout_ms,
                              gps_command_callback_t callback, void *user_data);
+
+/**
+ * @brief GPS에 raw binary 데이터 전송 (비동기)
+ *
+ * @param id GPS ID
+ * @param data Raw binary 데이터
+ * @param len 데이터 길이
+ * @param callback 완료 콜백 (NULL 가능)
+ * @param user_data 사용자 데이터
+ * @return true: 큐 추가 성공, false: 실패
+ */
+bool gps_send_raw_data_async(gps_id_t id, const uint8_t *data, uint16_t len,
+                              gps_command_callback_t callback, void *user_data);
 
 typedef void (*gps_init_callback_t)(bool success, void *user_data);
 

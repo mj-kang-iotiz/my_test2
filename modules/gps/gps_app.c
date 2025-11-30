@@ -447,6 +447,46 @@ static void gps_tx_task(void *pvParameter) {
 
   while (1) {
     if (xQueueReceive(inst->cmd_queue, &cmd_req, portMAX_DELAY) == pdTRUE) {
+
+      // Raw data 전송인 경우
+      if (cmd_req.cmd_type == GPS_CMD_TYPE_RAW_DATA) {
+        LOG_INFO("GPS[%d] Sending raw data: %d bytes", id, cmd_req.raw.data_len);
+
+        // Raw data 전송 (응답 대기 없음)
+        if (inst->gps.ops && inst->gps.ops->send) {
+          xSemaphoreTake(inst->gps.mutex, pdMS_TO_TICKS(1000));
+          inst->gps.ops->send(cmd_req.raw.data, cmd_req.raw.data_len);
+          xSemaphoreGive(inst->gps.mutex);
+
+          // Raw data는 응답 없음 - 즉시 성공 처리
+          if (cmd_req.is_async) {
+            cmd_req.async_result = true;
+          } else {
+            *(cmd_req.result) = true;
+          }
+        } else {
+          LOG_ERR("GPS[%d] send ops not available", id);
+          if (cmd_req.is_async) {
+            cmd_req.async_result = false;
+          } else {
+            *(cmd_req.result) = false;
+          }
+        }
+
+        // 비동기: 콜백 호출
+        if (cmd_req.is_async) {
+          if (cmd_req.callback) {
+            cmd_req.callback(cmd_req.async_result, cmd_req.user_data);
+          }
+          vSemaphoreDelete(cmd_req.response_sem);
+        } else {
+          xSemaphoreGive(cmd_req.response_sem);
+        }
+
+        continue;
+      }
+
+      // 문자열 명령어 전송 (기존 코드)
       LOG_INFO("GPS[%d] Sending command: %s", id, cmd_req.cmd);
 
       // 현재 명령어 요청 저장 (RX Task에서 응답 처리용)
@@ -778,7 +818,8 @@ bool gps_send_command_sync(gps_id_t id, const char *cmd, uint32_t timeout_ms) {
 
   // 명령어 요청 구조체 생성
   bool result = false;
- gps_cmd_request_t cmd_req = {
+  gps_cmd_request_t cmd_req = {
+      .cmd_type = GPS_CMD_TYPE_STRING,
       .timeout_ms = timeout_ms,
       .is_async = false,
       .response_sem = response_sem,
@@ -834,6 +875,7 @@ bool gps_send_command_async(gps_id_t id, const char *cmd, uint32_t timeout_ms,
 
   // 명령어 요청 구조체 생성 (비동기 방식)
   gps_cmd_request_t cmd_req = {
+      .cmd_type = GPS_CMD_TYPE_STRING,
       .timeout_ms = timeout_ms,
       .is_async = true,
       .response_sem = response_sem,
@@ -856,5 +898,58 @@ bool gps_send_command_async(gps_id_t id, const char *cmd, uint32_t timeout_ms,
   // 즉시 반환 (non-blocking)
   // TX Task가 처리를 완료하면 콜백 호출
   LOG_INFO("GPS[%d] Async command queued", id);
+  return true;
+}
+
+bool gps_send_raw_data_async(gps_id_t id, const uint8_t *data, uint16_t len,
+                              gps_command_callback_t callback, void *user_data) {
+  if (id >= GPS_ID_MAX || !gps_instances[id].enabled) {
+    LOG_ERR("GPS[%d] invalid or disabled", id);
+    return false;
+  }
+
+  if (!data || len == 0) {
+    LOG_ERR("GPS[%d] empty raw data", id);
+    return false;
+  }
+
+  if (len > 1024) {
+    LOG_ERR("GPS[%d] raw data too large: %d bytes", id, len);
+    return false;
+  }
+
+  gps_instance_t *inst = &gps_instances[id];
+
+  // 세마포어 생성 (TX Task 내부에서 사용)
+  SemaphoreHandle_t response_sem = xSemaphoreCreateBinary();
+  if (response_sem == NULL) {
+    LOG_ERR("GPS[%d] failed to create semaphore", id);
+    return false;
+  }
+
+  // Raw data 요청 구조체 생성
+  gps_cmd_request_t cmd_req = {
+      .cmd_type = GPS_CMD_TYPE_RAW_DATA,
+      .timeout_ms = 0,  // Raw data는 타임아웃 없음
+      .is_async = true,
+      .response_sem = response_sem,
+      .result = NULL,
+      .callback = callback,
+      .user_data = user_data,
+      .async_result = false,
+  };
+
+  // Raw data 복사
+  memcpy(cmd_req.raw.data, data, len);
+  cmd_req.raw.data_len = len;
+
+  // TX 태스크로 전송 요청
+  if (xQueueSend(inst->cmd_queue, &cmd_req, pdMS_TO_TICKS(1000)) != pdTRUE) {
+    LOG_ERR("GPS[%d] failed to send raw data to TX task", id);
+    vSemaphoreDelete(response_sem);
+    return false;
+  }
+
+  LOG_INFO("GPS[%d] Raw data queued: %d bytes", id, len);
   return true;
 }

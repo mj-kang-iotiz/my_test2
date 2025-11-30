@@ -19,6 +19,20 @@ typedef struct {
   char data[512];         // 수신 데이터 (최대 500 bytes)
 } lora_p2p_recv_data_t;
 
+/**
+ * @brief RTCM fragment 재조립 버퍼
+ */
+#define RTCM_REASSEMBLY_BUF_SIZE 1024
+#define RTCM_REASSEMBLY_TIMEOUT_MS 5000  // 5초 타임아웃
+
+typedef struct {
+  uint8_t buffer[RTCM_REASSEMBLY_BUF_SIZE];  // 재조립 버퍼
+  uint16_t buffer_pos;                        // 현재 버퍼 위치
+  uint16_t expected_len;                      // 예상 RTCM 패킷 전체 길이
+  bool has_header;                            // 헤더 수신 완료 여부
+  TickType_t last_recv_tick;                  // 마지막 수신 시간
+} rtcm_reassembly_t;
+
 void lora_start_tx_test(void);
 /**
  * @brief LoRa P2P 수신 콜백
