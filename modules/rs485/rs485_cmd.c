@@ -9,8 +9,25 @@
 
 #include "log.h"
 
-// Helper macro to send string literal with automatic length calculation
+// Helper macro to send string literal with automatic length calculation (compile-time)
 #define RS485_SEND_STR(str) rs485_send(str, sizeof(str) - 1)
+
+// Helper function to send buffer with automatic length calculation (runtime)
+static inline bool rs485_send_buf(const char *buf)
+{
+    return rs485_send(buf, strlen(buf));
+}
+
+// Helper function to send buffer with CRLF appended
+static inline bool rs485_send_response(const char *buf)
+{
+    char temp[256];
+    int len = snprintf(temp, sizeof(temp), "%s\r\n", buf);
+    if (len > 0 && len < sizeof(temp)) {
+        return rs485_send(temp, len);
+    }
+    return false;
+}
 
 static const char* rs485_resp_str_invalid = "+E01";
 static const char* rs485_resp_str_param_err = "+E02";
