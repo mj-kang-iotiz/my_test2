@@ -7,6 +7,7 @@
 #include "tcp_socket.h"
 #include "flash_params.h"
 #include <string.h>
+#include <stdlib.h>
 
 #ifndef TAG
   #define TAG "NTRIP"
@@ -14,11 +15,7 @@
 
 #include "log.h"
 
-// NTRIP 서버 정보
-#define NTRIP_SERVER_IP "ntrip.hi-rtk.io"
-// #define NTRIP_SERVER_IP "time.nist.gov"
-#define NTRIP_SERVER_PORT 2101
-// #define NTRIP_SERVER_PORT 13
+// NTRIP 연결 정보
 #define NTRIP_CONNECT_ID 0 // 소켓 ID (0-11)
 #define NTRIP_CONTEXT_ID 1 // PDP context ID
 
@@ -138,6 +135,10 @@ static TaskHandle_t g_gga_send_task_handle = NULL;
 static int ntrip_connect_to_server(tcp_socket_t *sock) {
   int ret;
   int retry_count = 0;
+  user_params_t *params = flash_params_get_current();
+
+  // 포트 번호 변환
+  int ntrip_port = atoi(params->ntrip_port);
 
   // HTTP 요청 생성
   if (ntrip_build_http_request(g_ntrip_http_request, sizeof(g_ntrip_http_request)) < 0) {
@@ -149,10 +150,10 @@ static int ntrip_connect_to_server(tcp_socket_t *sock) {
 
   while (retry_count < NTRIP_MAX_CONNECT_RETRY) {
     LOG_INFO("NTRIP 서버 연결 시도 [%d/%d]: %s:%d", retry_count + 1,
-             NTRIP_MAX_CONNECT_RETRY, NTRIP_SERVER_IP, NTRIP_SERVER_PORT);
+             NTRIP_MAX_CONNECT_RETRY, params->ntrip_url, ntrip_port);
 
-    ret = tcp_connect(sock, NTRIP_CONTEXT_ID, NTRIP_SERVER_IP,
-                      NTRIP_SERVER_PORT, 10000);
+    ret = tcp_connect(sock, NTRIP_CONTEXT_ID, params->ntrip_url,
+                      ntrip_port, 10000);
 
     if (ret == 0 && tcp_get_socket_state(sock, NTRIP_CONNECT_ID) ==
                         GSM_TCP_STATE_CONNECTED) {
