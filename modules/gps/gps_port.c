@@ -25,6 +25,9 @@ static gps_type_t uart4_gps_type = GPS_TYPE_F9P;
 static gps_id_t uart2_gps_id = GPS_ID_BASE;
 static gps_id_t uart4_gps_id = GPS_ID_ROVER;
 
+
+static const gps_hal_ops_t gps_rtk_uart4_ops;
+
 /**
  * @brief USART2 Initialization Function
  * @param None
@@ -409,7 +412,7 @@ int gps_rtk_uart4_init(void)
 
 void gps_uart4_comm_start(void)
 {
-  LL_DMA_SetPeriphAddress(DMA1, LL_DMA_STREAM_2, (uint32_t)&USART4->DR);
+  LL_DMA_SetPeriphAddress(DMA1, LL_DMA_STREAM_2, (uint32_t)&UART4->DR);
   LL_DMA_SetMemoryAddress(DMA1, LL_DMA_STREAM_2,
                           (uint32_t)&gps_recv_buf[uart4_gps_id]);
   LL_DMA_SetDataLength(DMA1, LL_DMA_STREAM_2,
@@ -420,13 +423,13 @@ void gps_uart4_comm_start(void)
   LL_DMA_EnableIT_FE(DMA1, LL_DMA_STREAM_2);
   LL_DMA_EnableIT_DME(DMA1, LL_DMA_STREAM_2);
 
-  LL_USART_EnableIT_IDLE(USART4);
-  LL_USART_EnableIT_PE(USART4);
-  LL_USART_EnableIT_ERROR(USART4);
-  LL_USART_EnableDMAReq_RX(USART4);
+  LL_USART_EnableIT_IDLE(UART4);
+  LL_USART_EnableIT_PE(UART4);
+  LL_USART_EnableIT_ERROR(UART4);
+  LL_USART_EnableDMAReq_RX(UART4);
 
   LL_DMA_EnableStream(DMA1, LL_DMA_STREAM_2);
-  LL_USART_Enable(USART4);
+  LL_USART_Enable(UART4);
 }
 
 void gps_rtk_uart4_gpio_start(void)
@@ -456,12 +459,12 @@ int gps_uart4_send(const char *data, size_t len)
 {
   for (int i = 0; i < len; i++)
   {
-    while (!LL_USART_IsActiveFlag_TXE(USART4))
+    while (!LL_USART_IsActiveFlag_TXE(UART4))
       ;
-    LL_USART_TransmitData8(USART4, *(data + i));
+    LL_USART_TransmitData8(UART4, *(data + i));
   }
 
-  while (!LL_USART_IsActiveFlag_TC(USART4))
+  while (!LL_USART_IsActiveFlag_TC(UART4))
     ;
 
   return 0;
@@ -487,7 +490,7 @@ void UART4_IRQHandler(void)
 {
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-  if (LL_USART_IsActiveFlag_IDLE(USART4))
+  if (LL_USART_IsActiveFlag_IDLE(UART4))
   {
     uint8_t dummy = 0;
 
@@ -496,24 +499,24 @@ void UART4_IRQHandler(void)
       xQueueSendFromISR(gps_queues[uart4_gps_id], &dummy, &xHigherPriorityTaskWoken);
     }
 
-    LL_USART_ClearFlag_IDLE(USART4);
+    LL_USART_ClearFlag_IDLE(UART4);
   }
 
-  if (LL_USART_IsActiveFlag_PE(USART4))
+  if (LL_USART_IsActiveFlag_PE(UART4))
   {
-    LL_USART_ClearFlag_PE(USART4);
+    LL_USART_ClearFlag_PE(UART4);
   }
-  if (LL_USART_IsActiveFlag_FE(USART4))
+  if (LL_USART_IsActiveFlag_FE(UART4))
   {
-    LL_USART_ClearFlag_FE(USART4);
+    LL_USART_ClearFlag_FE(UART4);
   }
-  if (LL_USART_IsActiveFlag_ORE(USART4))
+  if (LL_USART_IsActiveFlag_ORE(UART4))
   {
-    LL_USART_ClearFlag_ORE(USART4);
+    LL_USART_ClearFlag_ORE(UART4);
   }
-  if (LL_USART_IsActiveFlag_NE(USART4))
+  if (LL_USART_IsActiveFlag_NE(UART4))
   {
-    LL_USART_ClearFlag_NE(USART4);
+    LL_USART_ClearFlag_NE(UART4);
   }
 
   portYIELD_FROM_ISR(xHigherPriorityTaskWoken);

@@ -116,7 +116,7 @@ static void rs485_uart5_init(void)
 }
 
 int rs485_uart5_comm_start(void) {
-  LL_DMA_SetPeriphAddress(DMA1, LL_DMA_STREAM_0, (uint32_t)&USART5->DR);
+  LL_DMA_SetPeriphAddress(DMA1, LL_DMA_STREAM_0, (uint32_t)&UART5->DR);
   LL_DMA_SetMemoryAddress(DMA1, LL_DMA_STREAM_0,
                           (uint32_t)&rs485_recv_buf[0]);
   LL_DMA_SetDataLength(DMA1, LL_DMA_STREAM_0,
@@ -125,13 +125,13 @@ int rs485_uart5_comm_start(void) {
   LL_DMA_EnableIT_FE(DMA1, LL_DMA_STREAM_0);
   LL_DMA_EnableIT_DME(DMA1, LL_DMA_STREAM_0);
 
-  LL_USART_EnableIT_IDLE(USART5);
-  LL_USART_EnableIT_PE(USART5);
-  LL_USART_EnableIT_ERROR(USART5);
-  LL_USART_EnableDMAReq_RX(USART5);
+  LL_USART_EnableIT_IDLE(UART5);
+  LL_USART_EnableIT_PE(UART5);
+  LL_USART_EnableIT_ERROR(UART5);
+  LL_USART_EnableDMAReq_RX(UART5);
 
   LL_DMA_EnableStream(DMA1, LL_DMA_STREAM_0);
-  LL_USART_Enable(USART5);
+  LL_USART_Enable(UART5);
 
   return 0;
 }
@@ -146,12 +146,12 @@ int rs485_uart5_hw_init(void) {
 
 int rs485_uart5_send(const char *data, size_t len) {
   for (int i = 0; i < len; i++) {
-    while (!LL_USART_IsActiveFlag_TXE(USART5))
+    while (!LL_USART_IsActiveFlag_TXE(UART5))
       ;
-    LL_USART_TransmitData8(USART5, *(data + i));
+    LL_USART_TransmitData8(UART5, *(data + i));
   }
 
-  while (!LL_USART_IsActiveFlag_TC(USART5))
+  while (!LL_USART_IsActiveFlag_TC(UART5))
     ;
 
   return 0;
@@ -188,26 +188,26 @@ void USART5_IRQHandler(void) {
     /* USER CODE BEGIN USART3_IRQn 0 */
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-  if (LL_USART_IsActiveFlag_IDLE(USART5)) {
+  if (LL_USART_IsActiveFlag_IDLE(UART5)) {
     if (rs485_queues[0] != NULL) {
       uint8_t dummy = 0;
       xQueueSendFromISR(rs485_queues[0], &dummy, &xHigherPriorityTaskWoken);
     }
-    LL_USART_ClearFlag_IDLE(USART5);
+    LL_USART_ClearFlag_IDLE(UART5);
   }
 
 
-  if (LL_USART_IsActiveFlag_PE(USART5)) {
-    LL_USART_ClearFlag_PE(USART5);
+  if (LL_USART_IsActiveFlag_PE(UART5)) {
+    LL_USART_ClearFlag_PE(UART5);
   }
-  if (LL_USART_IsActiveFlag_FE(USART5)) {
-    LL_USART_ClearFlag_FE(USART5);
+  if (LL_USART_IsActiveFlag_FE(UART5)) {
+    LL_USART_ClearFlag_FE(UART5);
   }
-  if (LL_USART_IsActiveFlag_ORE(USART5)) {
-    LL_USART_ClearFlag_ORE(USART5);
+  if (LL_USART_IsActiveFlag_ORE(UART5)) {
+    LL_USART_ClearFlag_ORE(UART5);
   }
-  if (LL_USART_IsActiveFlag_NE(USART5)) {
-    LL_USART_ClearFlag_NE(USART5);
+  if (LL_USART_IsActiveFlag_NE(UART5)) {
+    LL_USART_ClearFlag_NE(UART5);
   }
 
   portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
@@ -252,16 +252,16 @@ void rs485_port_start(rs485_t *rs485_handle) {
     return;
   }
 
-  lora_handle->ops->start();
+  rs485_handle->ops->start();
 }
 
 void rs485_port_stop(rs485_t *rs485_handle) {
-  if (!rs485_handle || !rs485_handle->ops || !rs485_handle->ops->start) {
-    LOG_ERR("RS485 start failed: invalid handle or ops");
+  if (!rs485_handle || !rs485_handle->ops || !rs485_handle->ops->stop) {
+    LOG_ERR("RS485 stop failed: invalid handle or ops");
     return;
   }
 
-  lora_handle->ops->stop();
+  rs485_handle->ops->stop();
 }
 
 uint32_t rs485_port_get_rx_pos() {

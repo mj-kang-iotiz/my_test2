@@ -189,22 +189,32 @@ void _add_hp_avg_data(gps_instance_t *inst) {
 #define UM982_BASE_CMD_COUNT (sizeof(um982_base_cmds) / sizeof(um982_base_cmds[0]))
 
 static const char *um982_base_cmds[] = {
-	"unmask BDS\r\n",
-  "MODE BASE TIME 60\r\n",
+	// "CONFIG ANTENNA POWERON\r\n",
+  "unmask BDS\r\n",
+  "unmask GPS\r\n",
+  "unmask GLO\r\n",
+  "unmask GAL\r\n",
+  "MODE BASE TIME 120\r\n",
   "rtcm1033 com1 10\r\n",
   "rtcm1006 com1 10\r\n",
-  "rtcm1074 com1 1\r\n",
-  "rtcm1124 com1 1\r\n",
-  "rtcm1084 com1 1\r\n",
-  "rtcm1094 com1 1\r\n",
+  "rtcm1074 com1 2\r\n",
+  "rtcm1124 com1 2\r\n",
+  "rtcm1084 com1 2\r\n",
+  "rtcm1094 com1 2\r\n",
   "gpgga com1 1\r\n",
   "BESTNAVB 1\r\n",
 };
 
 static const char *um982_rover_cmds[] = {
+  // "CONFIG ANTENNA POWERON\r\n",
   "unmask BDS\r\n",
+  "unmask GPS\r\n",
+  "unmask GLO\r\n",
+  "unmask GAL\r\n",
   "MODE ROVER\r\n",
   "gpgga com1 1\r\n",
+  "gpgsv com1 1\r\n",
+  "gpths com1 1\r\n",
   "BESTNAVB 1\r\n",
 };
 
@@ -375,6 +385,8 @@ bool gps_init_um982_rover_async(gps_id_t id, gps_init_callback_t callback) {
 void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
                      gps_msg_t msg) {
   gps_instance_t *inst = NULL;
+  const board_config_t *config = board_get_config();
+
   for (uint8_t i = 0; i < GPS_CNT; i++) {
     if (gps_instances[i].enabled && &gps_instances[i].gps == gps) {
       inst = &gps_instances[i];
@@ -395,7 +407,6 @@ void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
 
       if (gps->nmea_data.gga_is_rdy)
       {
-        const board_config_t *config = board_get_config();
         if(config->board == BOARD_TYPE_ROVER_F9P)
         {
           if(inst->id == GPS_ID_BASE)
@@ -443,8 +454,11 @@ void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
     break;
 
   case GPS_PROTOCOL_RTCM:
+    if(config->lora_mode == LORA_MODE_BASE)
+    {
       rtcm_send_to_lora(gps);
-      break;
+    }
+    break;
 
   default:
     break;
@@ -870,4 +884,34 @@ bool gps_send_command_async(gps_id_t id, const char *cmd, uint32_t timeout_ms,
   // TX Task가 처리를 완료하면 콜백 호출
   LOG_INFO("GPS[%d] Async command queued", id);
   return true;
+}
+
+bool gps_send_raw_data(gps_id_t id, const uint8_t *data, size_t len) {
+  if (id >= GPS_ID_MAX || !gps_instances[id].enabled) {
+    LOG_ERR("GPS[%d] invalid or disabled", id);
+    return false;
+  }
+
+  if (!data || len == 0) {
+    LOG_ERR("GPS[%d] invalid data", id);
+    return false;
+  }
+
+  gps_instance_t *inst = &gps_instances[id];
+
+  if (!inst->gps.ops || !inst->gps.ops->send) {
+    LOG_ERR("GPS[%d] send ops not available", id);
+    return false;
+  }
+
+  // 뮤텍스로 UART 전송 보호
+  if (xSemaphoreTake(inst->gps.mutex, pdMS_TO_TICKS(2000)) == pdTRUE) {
+    inst->gps.ops->send((const char *)data, len);
+    xSemaphoreGive(inst->gps.mutex);
+    LOG_DEBUG("GPS[%d] sent %d bytes raw data", id, len);
+    return true;
+  } else {
+    LOG_ERR("GPS[%d] failed to acquire mutex", id);
+    return false;
+  }
 }

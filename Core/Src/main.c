@@ -31,6 +31,7 @@
 #include "gps_app.h"
 #include "gsm_app.h"
 #include "lora_app.h"
+#include "rs485_app.h"
 #include "led.h"
 #include "rtcm.h"
 #include "queue.h"
@@ -97,9 +98,10 @@ void initThread(void *pvParameter) {
   led_init();
   led_set_color(3, LED_COLOR_RED);
   led_set_state(3, true);
-  gps_init_all();
-  gsm_task_create(NULL);
-  lora_instance_init();
+//  gps_init_all();
+//  gsm_task_create(NULL);
+//  lora_instance_init();
+  rs485_init_all();
 //  lora_start_tx_test();
 //  lora_uart3_hw_init();
 //  lora_uart3_comm_start();
