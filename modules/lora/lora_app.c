@@ -890,15 +890,14 @@ static void lora_process_task(void *pvParameter)
                 if (rtcm_validate_packet(instance.rtcm_reassembly.buffer,
                                         instance.rtcm_reassembly.expected_len))
                 {
-                  LOG_INFO("Valid RTCM packet - sending to GPS via TX queue");
+                  LOG_INFO("Valid RTCM packet - sending to GPS via UART");
 
-                  // GPS TX 큐로 전송 (비동기)
-                  if (!gps_send_raw_data_async(GPS_ID_BASE,
-                                                instance.rtcm_reassembly.buffer,
-                                                instance.rtcm_reassembly.expected_len,
-                                                NULL, NULL))
+                  // GPS UART로 직접 전송
+                  if (!gps_send_raw_data(GPS_ID_BASE,
+                                         instance.rtcm_reassembly.buffer,
+                                         instance.rtcm_reassembly.expected_len))
                   {
-                    LOG_ERR("Failed to queue RTCM data to GPS TX task");
+                    LOG_ERR("Failed to send RTCM data to GPS");
                   }
                 }
                 else
@@ -999,15 +998,14 @@ static void lora_process_task(void *pvParameter)
                 if (rtcm_validate_packet(instance.rtcm_reassembly.buffer,
                                         instance.rtcm_reassembly.expected_len))
                 {
-                  LOG_INFO("Valid RTCM packet - sending to GPS via TX queue (wrap)");
+                  LOG_INFO("Valid RTCM packet - sending to GPS via UART (wrap)");
 
-                  // GPS TX 큐로 전송 (비동기)
-                  if (!gps_send_raw_data_async(GPS_ID_BASE,
-                                                instance.rtcm_reassembly.buffer,
-                                                instance.rtcm_reassembly.expected_len,
-                                                NULL, NULL))
+                  // GPS UART로 직접 전송
+                  if (!gps_send_raw_data(GPS_ID_BASE,
+                                         instance.rtcm_reassembly.buffer,
+                                         instance.rtcm_reassembly.expected_len))
                   {
-                    LOG_ERR("Failed to queue RTCM data to GPS TX task (wrap)");
+                    LOG_ERR("Failed to send RTCM data to GPS (wrap)");
                   }
                 }
                 else

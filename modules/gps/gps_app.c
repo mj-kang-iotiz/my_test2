@@ -871,3 +871,33 @@ bool gps_send_command_async(gps_id_t id, const char *cmd, uint32_t timeout_ms,
   LOG_INFO("GPS[%d] Async command queued", id);
   return true;
 }
+
+bool gps_send_raw_data(gps_id_t id, const uint8_t *data, size_t len) {
+  if (id >= GPS_ID_MAX || !gps_instances[id].enabled) {
+    LOG_ERR("GPS[%d] invalid or disabled", id);
+    return false;
+  }
+
+  if (!data || len == 0) {
+    LOG_ERR("GPS[%d] invalid data", id);
+    return false;
+  }
+
+  gps_instance_t *inst = &gps_instances[id];
+
+  if (!inst->gps.ops || !inst->gps.ops->send) {
+    LOG_ERR("GPS[%d] send ops not available", id);
+    return false;
+  }
+
+  // 뮤텍스로 UART 전송 보호
+  if (xSemaphoreTake(inst->gps.mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+    inst->gps.ops->send((const char *)data, len);
+    xSemaphoreGive(inst->gps.mutex);
+    LOG_DEBUG("GPS[%d] sent %d bytes raw data", id, len);
+    return true;
+  } else {
+    LOG_ERR("GPS[%d] failed to acquire mutex", id);
+    return false;
+  }
+}

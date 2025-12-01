@@ -27,6 +27,8 @@ bool gps_send_command_sync(gps_id_t id, const char *cmd, uint32_t timeout_ms);
 bool gps_send_command_async(gps_id_t id, const char *cmd, uint32_t timeout_ms,
                              gps_command_callback_t callback, void *user_data);
 
+bool gps_send_raw_data(gps_id_t id, const uint8_t *data, size_t len);
+
 typedef void (*gps_init_callback_t)(bool success, void *user_data);
 
 bool gps_init_um982_base_async(gps_id_t id, gps_init_callback_t callback);
