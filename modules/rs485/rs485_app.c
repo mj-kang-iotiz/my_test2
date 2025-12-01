@@ -1,6 +1,7 @@
 #include "rs485_app.h"
 #include "board_config.h"
 #include "rs485.h"
+#include "rs485_cmd.h"
 #include "rs485_port.h"
 #include <string.h>
 
@@ -10,17 +11,69 @@
 
 #include "log.h"
 
-#define RS485_UART_MAX_RECV_SIZE 1024
+void rs485_cmd_parse_process(rs485_instance_t *inst, const void *data, size_t len)
+{
+  const uint8_t *d = data;
 
-typedef struct {
-  rs485_t rs485;
-  QueueHandle_t rx_queue;
-  TaskHandle_t rx_task;
-  bool enabled;
+  for (; len > 0; ++d, --len)
+  {
+    if (inst->parse_state == RS485_CMD_PARSE_STATE_NONE)
+    {
+      if (*d == 'A')
+      {
+        inst->parser.pos = 0;
+        inst->parser.prev_char = '\0';
+        inst->parser.data[inst->parser.pos++] = (char)(*d);
+        inst->parser.data[inst->parser.pos] = '\0';
+        inst->parse_state = RS485_CMD_PARSE_STATE_GOT_A;
+      }
+    }
+    else if (inst->parse_state == RS485_CMD_PARSE_STATE_GOT_A)
+    {
+      if (*d == 'T')
+      {
+        inst->parser.data[inst->parser.pos++] = (char)(*d);
+        inst->parser.data[inst->parser.pos] = '\0';
+        inst->parse_state = RS485_CMD_PARSE_STATE_DATA;
+      }
+      else
+      {
+        inst->parser.pos = 0;
+        inst->parser.prev_char = '\0';
+        inst->parser.data[inst->parser.pos] = '\0';
+        inst->parse_state = RS485_CMD_PARSE_STATE_NONE;
+      }
+    }
+    else if (inst->parse_state == RS485_CMD_PARSE_STATE_DATA)
+    {
+      if (inst->parser.pos < sizeof(inst->parser.data) - 1)
+      {
+        inst->parser.data[inst->parser.pos++] = (char)(*d);
+        inst->parser.data[inst->parser.pos] = '\0';
+      }
+      else
+      {
+        inst->parser.pos = 0;
+        inst->parser.prev_char = '\0';
+        inst->parser.data[inst->parser.pos] = '\0';
+        inst->parse_state = RS485_CMD_PARSE_STATE_NONE;
+      }
 
-  QueueHandle_t tx_queue;
-  TaskHandle_t tx_task;
-} rs485_instance_t;
+      if (*d == '\n' && inst->parser.prev_char == '\r' && inst->parser.pos >= 2)
+      {
+        inst->parser.data[inst->parser.pos - 2] = '\0';
+        LOG_INFO("RS485 AT Command received: %s", inst->parser.data);
+
+        rs485_at_cmd_handler(inst);
+
+        inst->parser.pos = 0;
+        inst->parser.prev_char = '\0';
+        inst->parse_state = RS485_CMD_PARSE_STATE_NONE;
+      }
+      inst->parser.prev_char = (char)(*d);
+    }
+  }
+}
 
 static rs485_instance_t rs485_instance = {0};
 
@@ -33,6 +86,8 @@ static void rs485_tx_task(void *pvParameter) {
   while (1) {
     if (xQueueReceive(inst->tx_queue, &tx_req, portMAX_DELAY) == pdTRUE) {
       LOG_DEBUG("RS485 Sending %d bytes", tx_req.len);
+
+      xSemaphoreTake(inst->mutex, portMAX_DELAY);
 
       if (inst->rs485.ops && inst->rs485.ops->send) {
         if (inst->rs485.ops->tx_enable) {
@@ -49,6 +104,8 @@ static void rs485_tx_task(void *pvParameter) {
       } else {
         LOG_ERR("RS485 send ops not available");
       }
+
+      xSemaphoreGive(inst->mutex);
     }
   }
 
@@ -61,6 +118,7 @@ static void rs485_rx_task(void *pvParameter) {
   size_t pos = 0;
   size_t old_pos = 0;
   uint8_t dummy = 0;
+  size_t total_received = 0;
 
   LOG_INFO("RS485 RX Task started");
 
@@ -70,19 +128,26 @@ static void rs485_rx_task(void *pvParameter) {
   while (1) {
     xQueueReceive(inst->rx_queue, &dummy, portMAX_DELAY);
 
+    xSemaphoreTake(inst->mutex, portMAX_DELAY);
+
     pos = rs485_port_get_rx_pos();
     char *rs485_recv = rs485_port_get_recv_buf();
 
     if (pos != old_pos) {
       if (pos > old_pos) {
         size_t len = pos - old_pos;
+        total_received = len;
         LOG_DEBUG_RAW("RS485 RX: ", &rs485_recv[old_pos], len);
+        rs485_cmd_parse_process(inst, &rs485_recv[old_pos], len);
       } else {
         size_t len1 = RS485_UART_MAX_RECV_SIZE - old_pos;
         size_t len2 = pos;
+        total_received = len1 + len2;
         LOG_DEBUG_RAW("RS485 RX: ", &rs485_recv[old_pos], len1);
+        rs485_cmd_parse_process(inst, &rs485_recv[old_pos], len1);
         if (pos > 0) {
           LOG_DEBUG_RAW("RS485 RX: ", rs485_recv, len2);
+          rs485_cmd_parse_process(inst, rs485_recv, len2);
         }
       }
       old_pos = pos;
@@ -90,6 +155,8 @@ static void rs485_rx_task(void *pvParameter) {
         old_pos = 0;
       }
     }
+
+    xSemaphoreGive(inst->mutex);
   }
 
   vTaskDelete(NULL);
@@ -125,6 +192,13 @@ void rs485_init_all(void) {
   rs485_instance.tx_queue = xQueueCreate(5, sizeof(rs485_tx_request_t));
   if (rs485_instance.tx_queue == NULL) {
     LOG_ERR("RS485 TX 큐 생성 실패");
+    rs485_instance.enabled = false;
+    return;
+  }
+
+  rs485_instance.mutex = xSemaphoreCreateMutex();
+  if (rs485_instance.mutex == NULL) {
+    LOG_ERR("RS485 mutex 생성 실패");
     rs485_instance.enabled = false;
     return;
   }
