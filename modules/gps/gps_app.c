@@ -405,7 +405,8 @@ void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
                           gps->nmea_data.gga.alt);
       }
 
-      if (gps->nmea_data.gga_is_rdy)
+      // GPS fix가 있을 때만 NTRIP 서버로 GGA 전송
+      if (gps->nmea_data.gga_is_rdy && gps->nmea_data.gga.fix >= GPS_FIX_GPS)
       {
         if(config->board == BOARD_TYPE_ROVER_F9P)
         {

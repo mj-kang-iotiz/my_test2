@@ -67,8 +67,7 @@ static int ntrip_connect_to_server(tcp_socket_t *sock) {
     ret = tcp_connect(sock, NTRIP_CONTEXT_ID, NTRIP_SERVER_IP,
                       NTRIP_SERVER_PORT, 10000);
 
-    if (ret == 0 && tcp_get_socket_state(sock, NTRIP_CONNECT_ID) ==
-                        GSM_TCP_STATE_CONNECTED) {
+    if (ret == 0) {
       LOG_INFO("TCP 연결 성공");
 
       // HTTP 요청 전송

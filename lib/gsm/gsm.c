@@ -1353,6 +1353,8 @@ int gsm_tcp_open(gsm_t *gsm, uint8_t connect_id, uint8_t context_id,
     }
 
     if (result != pdTRUE || socket->state != GSM_TCP_STATE_CONNECTED) {
+      LOG_ERR("TCP 연결 실패: connect_id=%d, state=%d", connect_id, socket->state);
+      return -1;
     }
 
     return 0;
