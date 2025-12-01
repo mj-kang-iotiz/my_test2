@@ -11,9 +11,11 @@
 
 #include "log.h"
 
-void rs485_cmd_parse_process(rs485_instance_t *inst, const void *data, size_t len)
+// Returns true if a complete command was parsed and is ready to be processed
+bool rs485_cmd_parse_process(rs485_instance_t *inst, const void *data, size_t len)
 {
   const uint8_t *d = data;
+  bool cmd_ready = false;
 
   for (; len > 0; ++d, --len)
   {
@@ -64,15 +66,17 @@ void rs485_cmd_parse_process(rs485_instance_t *inst, const void *data, size_t le
         inst->parser.data[inst->parser.pos - 2] = '\0';
         LOG_INFO("RS485 AT Command received: %s", inst->parser.data);
 
-        rs485_at_cmd_handler(inst);
-
         inst->parser.pos = 0;
         inst->parser.prev_char = '\0';
         inst->parse_state = RS485_CMD_PARSE_STATE_NONE;
+
+        cmd_ready = true;
       }
       inst->parser.prev_char = (char)(*d);
     }
   }
+
+  return cmd_ready;
 }
 
 static rs485_instance_t rs485_instance = {0};

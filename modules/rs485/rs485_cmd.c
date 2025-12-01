@@ -9,6 +9,9 @@
 
 #include "log.h"
 
+// Helper macro to send string literal with automatic length calculation
+#define RS485_SEND_STR(str) rs485_send(str, sizeof(str) - 1)
+
 static const char* rs485_resp_str_invalid = "+E01";
 static const char* rs485_resp_str_param_err = "+E02";
 static const char* rs485_resp_str_not_rdy = "+E03";
@@ -63,77 +66,77 @@ void rs485_at_cmd_handler(rs485_instance_t *inst)
 static void at_handler(const char *param)
 {
     LOG_INFO("AT command handler called");
-    rs485_send("OK\r\n", 4);
+    RS485_SEND_STR("OK\r\n");
 }
 
 static void atz_handler(const char *param)
 {
     LOG_INFO("ATZ command handler called");
-    rs485_send("OK\r\n", 4);
+    RS485_SEND_STR("OK\r\n");
 }
 
 static void atandz_handler(const char *param)
 {
     LOG_INFO("AT&Z command handler called");
-    rs485_send("OK\r\n", 4);
+    RS485_SEND_STR("OK\r\n");
 }
 
 static void at_ver_handler(const char *param)
 {
     LOG_INFO("AT+VER? command handler called");
-    rs485_send("+VER:1.0.0\r\nOK\r\n", 17);
+    RS485_SEND_STR("+VER:1.0.0\r\nOK\r\n");
 }
 
 static void at_gps_manuf_handler(const char *param)
 {
     LOG_INFO("AT+GPSMANUF? command handler called");
-    rs485_send("+GPSMANUF:MANUFACTURER\r\nOK\r\n", 29);
+    RS485_SEND_STR("+GPSMANUF:MANUFACTURER\r\nOK\r\n");
 }
 
 static void at_read_config_handler(const char *param)
 {
     LOG_INFO("AT+CONFIG? command handler called");
-    rs485_send("+CONFIG:...\r\nOK\r\n", 17);
+    RS485_SEND_STR("+CONFIG:...\r\nOK\r\n");
 }
 
 static void at_set_baseline_handler(const char *param)
 {
     LOG_INFO("AT+SETBASELINE: command handler called, param: %s", param);
-    rs485_send("OK\r\n", 4);
+    RS485_SEND_STR("OK\r\n");
 }
 
 static void at_set_ntrip_ip_handler(const char *param)
 {
     LOG_INFO("AT+CASTER: command handler called, param: %s", param);
-    rs485_send("OK\r\n", 4);
+    RS485_SEND_STR("OK\r\n");
 }
 
 static void at_set_ntrip_id_handler(const char *param)
 {
     LOG_INFO("AT+ID= command handler called, param: %s", param);
-    rs485_send("OK\r\n", 4);
+    RS485_SEND_STR("OK\r\n");
 }
 
 static void at_set_ntrip_mountpoint_handler(const char *param)
 {
     LOG_INFO("AT+MOUNTPOINT= command handler called, param: %s", param);
-    rs485_send("OK\r\n", 4);
+    RS485_SEND_STR("OK\r\n");
 }
 
 static void at_set_ntrip_passwd_handler(const char *param)
 {
     LOG_INFO("AT+PASSWD= command handler called, param: %s", param);
-    rs485_send("OK\r\n", 4);
+    RS485_SEND_STR("OK\r\n");
 }
 
 static void at_set_rtk_start_handler(const char *param)
 {
     LOG_INFO("AT+GUGUSTART command handler called");
-    rs485_send("OK\r\n", 4);
+    RS485_SEND_STR("OK\r\n");
 }
 
 static void at_set_rtk_stop_handler(const char *param)
 {
     LOG_INFO("AT+GUGUSTOP command handler called");
-    rs485_send("OK\r\n", 4);
+    RS485_SEND_STR("OK\r\n");
 }
