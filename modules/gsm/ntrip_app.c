@@ -14,7 +14,30 @@
 #include "log.h"
 
 // NTRIP 서버 정보
+// ============================================================================
+// ★ M2M 유심칩 디버깅 가이드 ★
+// ============================================================================
+// M2M(LG U+ 등) 유심칩에서 TCP 연결이 안 될 때 체크사항:
+//
+// 1. DNS 해석 문제 (에러코드 563)
+//    - M2M APN에서 DNS 서버가 제대로 설정되지 않은 경우
+//    - 해결: 아래 IP 주소를 직접 사용 (19번 라인 주석 해제)
+//
+// 2. 포트 차단 문제 (에러코드 568 타임아웃)
+//    - M2M 네트워크 정책으로 특정 포트가 차단된 경우
+//    - 해결: 통신사에 포트 개방 요청 또는 다른 포트 사용
+//
+// 3. PDP Context 활성화 문제
+//    - APN 등록은 됐지만 실제 데이터 연결이 활성화되지 않은 경우
+//    - 확인: AT+CGACT? 명령어로 PDP context 상태 확인
+//    - 로그에서 "PDP context 비활성화" 메시지 확인
+//
+// 4. 일반 유심칩과의 차이점
+//    - M2M 유심칩은 통신사 정책으로 일부 기능이 제한될 수 있음
+//    - DNS, 특정 포트, 특정 IP 대역 등이 제한될 수 있음
+// ============================================================================
 #define NTRIP_SERVER_IP "ntrip.hi-rtk.io"
+// #define NTRIP_SERVER_IP "211.253.30.89"  // ntrip.hi-rtk.io의 IP (DNS 문제 테스트용)
 // #define NTRIP_SERVER_IP "time.nist.gov"
 #define NTRIP_SERVER_PORT 2101
 // #define NTRIP_SERVER_PORT 13
@@ -61,14 +84,17 @@ static int ntrip_connect_to_server(tcp_socket_t *sock) {
   int retry_count = 0;
 
   while (retry_count < NTRIP_MAX_CONNECT_RETRY) {
-    LOG_INFO("NTRIP 서버 연결 시도 [%d/%d]: %s:%d", retry_count + 1,
-             NTRIP_MAX_CONNECT_RETRY, NTRIP_SERVER_IP, NTRIP_SERVER_PORT);
+    LOG_INFO("NTRIP 서버 연결 시도 [%d/%d]: %s:%d (PDP Context=%d)", retry_count + 1,
+             NTRIP_MAX_CONNECT_RETRY, NTRIP_SERVER_IP, NTRIP_SERVER_PORT, NTRIP_CONTEXT_ID);
 
     ret = tcp_connect(sock, NTRIP_CONTEXT_ID, NTRIP_SERVER_IP,
                       NTRIP_SERVER_PORT, 10000);
 
-    if (ret == 0 && tcp_get_socket_state(sock, NTRIP_CONNECT_ID) ==
-                        GSM_TCP_STATE_CONNECTED) {
+    gsm_tcp_state_t socket_state = tcp_get_socket_state(sock, NTRIP_CONNECT_ID);
+    LOG_INFO("TCP 연결 결과: ret=%d, socket_state=%d (0=CLOSED, 1=OPENING, 2=CONNECTED, 3=CLOSING)",
+             ret, socket_state);
+
+    if (ret == 0 && socket_state == GSM_TCP_STATE_CONNECTED) {
       LOG_INFO("TCP 연결 성공");
 
       // HTTP 요청 전송

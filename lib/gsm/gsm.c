@@ -177,6 +177,7 @@ void handle_urc_qiopen(gsm_t *gsm, const char *data, size_t len) {
       if (target->qiopen.result == 0) {
         // 연결 성공
         socket->state = GSM_TCP_STATE_CONNECTED;
+        LOG_INFO("TCP 소켓 [%d] 연결 성공: %s:%d", cid, socket->remote_ip, socket->remote_port);
 
         if (is_urc && gsm->evt_handler.handler) {
           gsm->evt_handler.handler(GSM_EVT_TCP_CONNECTED, &cid);
@@ -184,6 +185,8 @@ void handle_urc_qiopen(gsm_t *gsm, const char *data, size_t len) {
       } else {
         // 연결 실패
         socket->state = GSM_TCP_STATE_CLOSED;
+        LOG_ERR("TCP 소켓 [%d] 연결 실패: %s:%d, 에러코드=%d", cid, socket->remote_ip, socket->remote_port, target->qiopen.result);
+        LOG_ERR("에러코드 설명: 563=DNS해석실패, 566=소켓닫기실패, 567=소켓없음, 568=타임아웃");
       }
 
       if (socket->open_sem) {
