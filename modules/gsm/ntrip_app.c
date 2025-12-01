@@ -5,6 +5,7 @@
 #include "queue.h"
 #include "task.h"
 #include "tcp_socket.h"
+#include "flash_params.h"
 #include <string.h>
 
 #ifndef TAG
@@ -35,16 +36,94 @@ typedef struct {
   uint8_t len;
 } ntrip_gga_queue_item_t;
 
-// NTRIP HTTP 요청
-static const char NTRIP_HTTP_REQUEST[] =
-    "GET /RTK_SMT_MSG HTTP/1.0\r\n"
+// Base64 인코딩 테이블
+static const char base64_table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/**
+ * @brief Base64 인코딩 함수
+ * @param input 입력 데이터
+ * @param input_len 입력 데이터 길이
+ * @param output 출력 버퍼
+ * @param output_size 출력 버퍼 크기
+ * @return 인코딩된 문자열 길이 (실패시 -1)
+ */
+static int base64_encode(const char *input, size_t input_len, char *output, size_t output_size) {
+  size_t output_len = 4 * ((input_len + 2) / 3);
+
+  if (output_size < output_len + 1) {
+    return -1; // 버퍼 부족
+  }
+
+  size_t i, j;
+  for (i = 0, j = 0; i < input_len;) {
+    uint32_t octet_a = i < input_len ? (unsigned char)input[i++] : 0;
+    uint32_t octet_b = i < input_len ? (unsigned char)input[i++] : 0;
+    uint32_t octet_c = i < input_len ? (unsigned char)input[i++] : 0;
+
+    uint32_t triple = (octet_a << 16) + (octet_b << 8) + octet_c;
+
+    output[j++] = base64_table[(triple >> 18) & 0x3F];
+    output[j++] = base64_table[(triple >> 12) & 0x3F];
+    output[j++] = base64_table[(triple >> 6) & 0x3F];
+    output[j++] = base64_table[triple & 0x3F];
+  }
+
+  // 패딩 처리
+  size_t mod = input_len % 3;
+  if (mod == 1) {
+    output[output_len - 2] = '=';
+    output[output_len - 1] = '=';
+  } else if (mod == 2) {
+    output[output_len - 1] = '=';
+  }
+
+  output[output_len] = '\0';
+  return output_len;
+}
+
+/**
+ * @brief NTRIP HTTP 요청 문자열 생성
+ * @param buffer 출력 버퍼
+ * @param buffer_size 버퍼 크기
+ * @return 생성된 문자열 길이 (실패시 -1)
+ */
+static int ntrip_build_http_request(char *buffer, size_t buffer_size) {
+  user_params_t *params = flash_params_get_current();
+
+  // ID:PW 문자열 생성
+  char credentials[128];
+  snprintf(credentials, sizeof(credentials), "%s:%s", params->ntrip_id, params->ntrip_pw);
+
+  // Base64 인코딩
+  char encoded_credentials[256];
+  int encoded_len = base64_encode(credentials, strlen(credentials), encoded_credentials, sizeof(encoded_credentials));
+
+  if (encoded_len < 0) {
+    LOG_ERR("Base64 인코딩 실패");
+    return -1;
+  }
+
+  // HTTP 요청 생성
+  int len = snprintf(buffer, buffer_size,
+    "GET /%s HTTP/1.0\r\n"
     "User-Agent: NTRIP GUGU SYSTEM\r\n"
     "Accept: */*\r\n"
     "Connection: close\r\n"
-    "Authorization: Basic aW90aXoxOjEyMzQ=\r\n"
-    "\r\n";
+    "Authorization: Basic %s\r\n"
+    "\r\n",
+    params->ntrip_mountpoint,
+    encoded_credentials);
+
+  if (len < 0 || len >= buffer_size) {
+    LOG_ERR("HTTP 요청 생성 실패");
+    return -1;
+  }
+
+  return len;
+}
 
 uint8_t recv_buf[1500];
+static char g_ntrip_http_request[512]; // 동적으로 생성된 HTTP 요청 저장
 
 // NTRIP TCP 소켓 (GGA 전송용)
 static tcp_socket_t *g_ntrip_socket = NULL;
@@ -60,6 +139,14 @@ static int ntrip_connect_to_server(tcp_socket_t *sock) {
   int ret;
   int retry_count = 0;
 
+  // HTTP 요청 생성
+  if (ntrip_build_http_request(g_ntrip_http_request, sizeof(g_ntrip_http_request)) < 0) {
+    LOG_ERR("HTTP 요청 생성 실패");
+    return -1;
+  }
+
+  LOG_INFO("HTTP 요청: %s", g_ntrip_http_request);
+
   while (retry_count < NTRIP_MAX_CONNECT_RETRY) {
     LOG_INFO("NTRIP 서버 연결 시도 [%d/%d]: %s:%d", retry_count + 1,
              NTRIP_MAX_CONNECT_RETRY, NTRIP_SERVER_IP, NTRIP_SERVER_PORT);
@@ -73,8 +160,8 @@ static int ntrip_connect_to_server(tcp_socket_t *sock) {
 
       // HTTP 요청 전송
       LOG_INFO("NTRIP HTTP 요청 전송");
-      ret = tcp_send(sock, (const uint8_t *)NTRIP_HTTP_REQUEST,
-                     strlen(NTRIP_HTTP_REQUEST));
+      ret = tcp_send(sock, (const uint8_t *)g_ntrip_http_request,
+                     strlen(g_ntrip_http_request));
 
       if (ret < 0) {
         LOG_ERR("HTTP 요청 전송 실패: %d", ret);
@@ -207,8 +294,8 @@ static void ntrip_tcp_recv_task(void *pvParameter) {
 
   // HTTP 요청 전송 (한 번만)
   LOG_INFO("NTRIP HTTP 요청 전송");
-  ret = tcp_send(sock, (const uint8_t *)NTRIP_HTTP_REQUEST,
-                 strlen(NTRIP_HTTP_REQUEST));
+  ret = tcp_send(sock, (const uint8_t *)g_ntrip_http_request,
+                 strlen(g_ntrip_http_request));
   if (ret < 0) {
     LOG_ERR("HTTP 요청 전송 실패: %d", ret);
     tcp_close(sock);
