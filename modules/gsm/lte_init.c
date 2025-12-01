@@ -254,8 +254,27 @@ static void lte_cpin_check_callback(gsm_t *gsm, gsm_cmd_t cmd, void *msg,
   // AT+CGDCONT APN 설정
   LOG_INFO("[7/9] AT+CGDCONT APN 설정...");
 
+  // ============================================================================
+  // ★ LG U+ M2M 유심칩 전용 설정 ★
+  // ============================================================================
+  // APN: m2m-router.lguplus.co.kr (M2M 전용 라우팅)
+  //   - 일반 소비자: internet.lguplus.co.kr
+  //   - M2M 전용: m2m-router.lguplus.co.kr (필수!)
+  //
+  // MCC/MNC: 450/06 (자동 등록, 수동 설정 불필요)
+  //   - MCC: 450 (대한민국)
+  //   - MNC: 06 (LG U+)
+  //   - EC25는 자동으로 네트워크를 선택하므로 별도 설정 불필요
+  //   - 필요시: AT+COPS=1,2,"45006" 명령어로 수동 선택 가능
+  //
+  // MMSC/MMS 포트: 데이터 통신에는 불필요
+  //   - MMSC: http://omammsc.uplus.co.kr:9084
+  //   - MMS 포트: 9084
+  //   - 이 설정들은 MMS(멀티미디어 메시지) 전용이므로
+  //     NTRIP 같은 데이터 통신에는 설정하지 않아도 됨
+  // ============================================================================
   gsm_pdp_context_t ctx = {
-      .cid = 1, .type = GSM_PDP_TYPE_IP, .apn = "internet.lguplus.co.kr"};
+      .cid = 1, .type = GSM_PDP_TYPE_IP, .apn = "m2m-router.lguplus.co.kr"};
   gsm_send_at_cgdcont(gsm, GSM_AT_WRITE, &ctx, lte_apn_set_callback);
 }
 
@@ -297,8 +316,8 @@ static void lte_apn_verify_callback(gsm_t *gsm, gsm_cmd_t cmd, void *msg,
 
     // 설정한 APN이 맞는지 확인
     gsm_pdp_context_t *ctx = &m->cgdcont.contexts[0];
-    if (ctx->cid == 1 && strcmp(ctx->apn, "internet.lguplus.co.kr") == 0) {
-      LOG_INFO("[8/9] APN 정상 등록: %s", ctx->apn);
+    if (ctx->cid == 1 && strcmp(ctx->apn, "m2m-router.lguplus.co.kr") == 0) {
+      LOG_INFO("[8/9] APN 정상 등록: %s (M2M 전용)", ctx->apn);
       lte_init_state = LTE_INIT_NETWORK_CHECK;
 
       // 네트워크 등록 확인 시작
@@ -360,7 +379,7 @@ static void lte_network_check_callback(gsm_t *gsm, gsm_cmd_t cmd, void *msg,
     LOG_INFO("========================================");
     LOG_INFO("LTE 초기화 완료!");
     LOG_INFO("  - 네트워크: %s", m->cops.oper);
-    LOG_INFO("  - APN: internet.lguplus.co.kr");
+    LOG_INFO("  - APN: m2m-router.lguplus.co.kr (M2M 전용)");
     LOG_INFO("========================================");
 
     // 초기화 완료 이벤트
