@@ -656,6 +656,10 @@ static void gps_process_task(void *pvParameter) {
   // 통신 확인됨 - 초기화 진행
   LOG_INFO("GPS[%d] UART communication verified - starting initialization...", id);
 
+  // Baud rate 감지 중 쌓인 이전 데이터 무시 (쓰레기 데이터 파싱 방지)
+  old_pos = gps_port_get_rx_pos(id);
+  LOG_DEBUG("GPS[%d] Discarding previous buffer data, starting from pos %zu", id, old_pos);
+
 #if defined(BOARD_TYPE_BASE_UNICORE)
   gps_init_um982_base_async(id, overall_init_complete);
 #elif defined(BOARD_TYPE_ROVER_UNICORE)
