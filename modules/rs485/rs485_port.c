@@ -24,6 +24,15 @@ static QueueHandle_t rs485_queues[1] = {NULL};
 
 static void rs485_rx_enable();
 
+// RS485 트랜시버 모드 전환 대기를 위한 마이크로초 딜레이
+// 115200bps 기준: 1비트 = 8.68us, 안전하게 20us 딜레이
+static inline void delay_us(uint32_t us) {
+  volatile uint32_t count = us * (SystemCoreClock / 1000000U) / 5;
+  while (count--) {
+    __NOP();
+  }
+}
+
 static void rs485_uart5_dma_init(void)
 {
   /* Init with LL driver */
@@ -154,6 +163,8 @@ int rs485_uart5_send(const char *data, size_t len) {
   while (!LL_USART_IsActiveFlag_TC(UART5))
     ;
 
+  delay_us(50); // 마지막 비트 완전 전송 대기
+
   return 0;
 }
 
@@ -161,6 +172,7 @@ void rs485_tx_enable()
 {
     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_10, GPIO_PIN_SET); // DE
     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_11, GPIO_PIN_SET); // /RE
+    delay_us(20); // RS485 트랜시버 모드 전환 대기
 }
 
 void rs485_rx_enable()
