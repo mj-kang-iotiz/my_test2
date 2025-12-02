@@ -648,10 +648,6 @@ static void gps_process_task(void *pvParameter) {
 
       // 에러 상태로 대기 (초기화 진행 안 함)
       while (1) {
-        if (use_led) {
-          led_set_color(2, LED_COLOR_RED);
-          led_set_toggle(2);
-        }
         vTaskDelay(pdMS_TO_TICKS(1000));
       }
     }
@@ -660,14 +656,19 @@ static void gps_process_task(void *pvParameter) {
   // 통신 확인됨 - 초기화 진행
   LOG_INFO("GPS[%d] UART communication verified - starting initialization...", id);
 
-  // Unicore GPS는 바로 초기화 시작
 #if defined(BOARD_TYPE_BASE_UNICORE)
   gps_init_um982_base_async(id, overall_init_complete);
 #elif defined(BOARD_TYPE_ROVER_UNICORE)
   gps_init_um982_rover_async(id, overall_init_complete);
-#elif defined(BOARD_TYPE_BASE_UBLOX) || defined(BOARD_TYPE_ROVER_UBLOX)
-  // F9P GPS는 factory reset 후 콜백에서 UBX 초기화 시작
-  gps_factory_reset_async(id, callback_function, (void *)(uintptr_t)id);
+#elif defined(BOARD_TYPE_BASE_UBLOX)
+  ubx_base_init(&inst->gps);
+#elif defined(BOARD_TYPE_ROVER_UBLOX)
+  if(id == GPS_ID_BASE) {
+    ubx_moving_base_init(&inst->gps);
+  }
+  else if(id == GPS_ID_ROVER) {
+    ubx_rover_init(&inst->gps);
+  }
 #endif
 
   bool init_done = false;
