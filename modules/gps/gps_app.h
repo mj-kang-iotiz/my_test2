@@ -85,19 +85,33 @@ bool gps_get_gga_avg(gps_id_t id, double *lat, double *lon, double *alt);
 bool gps_factory_reset_async(gps_id_t id, gps_init_callback_t callback, void *user_data);
 
 /**
- * @brief GPS와의 통신을 테스트 (UBX poll 메시지 전송 및 응답 확인)
+ * @brief GPS 데이터 수신 여부 확인
+ *
+ * 지정된 시간 동안 GPS로부터 데이터가 수신되는지 확인합니다.
+ * NMEA든 UBX든 상관없이 데이터만 수신되면 통신 성공으로 판단합니다.
  *
  * @param id GPS ID
  * @param timeout_ms 타임아웃 (ms)
- * @return true 통신 성공, false 통신 실패
+ * @return true 데이터 수신됨, false 타임아웃
  */
 bool gps_test_communication(gps_id_t id, uint32_t timeout_ms);
 
 /**
- * @brief GPS UART baud rate 자동 감지 및 115200bps로 설정
+ * @brief F9P GPS UART baud rate 자동 감지 및 115200bps로 설정
  *
+ * F9P 부팅 시 현재 UART 통신 속도를 확인하고 필요시 115200bps로 변경합니다.
+ *
+ * 동작 순서:
+ * 1. 115200 bps로 데이터 수신 테스트 → 성공 시 완료
+ * 2. 실패 시 38400 bps로 변경 후 테스트
+ * 3. 38400에서 성공 시:
+ *    - F9P 모듈을 115200 bps로 설정 (UBX-CFG-VALSET)
+ *    - STM32 UART를 115200 bps로 변경
+ *    - 최종 통신 확인
+ *
+ * @note F9P 타입이 아니면 스킵됩니다.
  * @param id GPS ID
- * @return true 성공, false 실패
+ * @return true 성공 (또는 이미 115200), false 실패
  */
 bool gps_detect_and_set_baudrate(gps_id_t id);
 
