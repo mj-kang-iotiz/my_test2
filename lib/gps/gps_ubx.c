@@ -438,6 +438,12 @@ bool ubx_send_valset(gps_t *gps, ubx_cfg_layer_t layer,
                      const ubx_cfg_item_t *items, size_t item_count)
 {
 
+  // GPS send 함수 유효성 체크 (먼저!)
+  if (!gps || !gps->ops || !gps->ops->send)
+  {
+    return false;
+  }
+
   ubx_cmd_handler_t *handler = &gps->ubx_cmd_handler;
 
   // 이미 대기 중인 명령이 있으면 실패
@@ -605,6 +611,12 @@ bool ubx_send_valget(gps_t *gps, ubx_cfg_layer_t layer,
 
                      const uint32_t *key_ids, size_t key_count)
 {
+
+  // GPS send 함수 유효성 체크 (먼저!)
+  if (!gps || !gps->ops || !gps->ops->send)
+  {
+    return false;
+  }
 
   ubx_cmd_handler_t *handler = &gps->ubx_cmd_handler;
 

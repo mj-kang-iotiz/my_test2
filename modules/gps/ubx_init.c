@@ -403,6 +403,13 @@ bool ubx_factory_reset_async(gps_t* gps, ubx_factory_reset_callback_t callback, 
     msg[offset++] = ck_a;
     msg[offset++] = ck_b;
 
+    // GPS send 함수 유효성 체크 (먼저!)
+    if (!gps->ops || !gps->ops->send)
+    {
+        LOG_ERR("GPS send function not available");
+        return false;
+    }
+
     // Command handler 설정 (ACK/NAK 대기)
     ubx_cmd_handler_t *handler = &gps->ubx_cmd_handler;
 
@@ -422,19 +429,8 @@ bool ubx_factory_reset_async(gps_t* gps, ubx_factory_reset_callback_t callback, 
     handler->timestamp = xTaskGetTickCount() * portTICK_PERIOD_MS;
 
     // GPS에 전송
-    if (gps->ops && gps->ops->send)
-    {
-        gps->ops->send((const char*)msg, offset);
-        LOG_INFO("F9P 공장 초기화 명령 전송 완료 (ACK 대기 중...)");
-        LOG_WARN("주의: F9P가 재부팅하면 ACK를 받지 못할 수 있습니다");
-        return true;
-    }
-    else
-    {
-        LOG_ERR("GPS send function not available");
-        handler->state = UBX_CMD_STATE_IDLE;
-        handler->callback = NULL;
-        handler->callback_data = NULL;
-        return false;
-    }
+    gps->ops->send((const char*)msg, offset);
+    LOG_INFO("F9P 공장 초기화 명령 전송 완료 (ACK 대기 중...)");
+    LOG_WARN("주의: F9P가 재부팅하면 ACK를 받지 못할 수 있습니다");
+    return true;
 }
