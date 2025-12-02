@@ -622,13 +622,43 @@ static void gps_process_task(void *pvParameter) {
 
   vTaskDelay(pdMS_TO_TICKS(2000));
 
-  // F9P GPS의 경우 baud rate 자동 감지 수행
+  // F9P GPS의 경우 baud rate 자동 감지 수행 (재시도 포함)
+  bool baudrate_ok = true;
   if (inst->type == GPS_TYPE_F9P) {
-    LOG_INFO("GPS[%d] Detecting UART baud rate...", id);
-    if (!gps_detect_and_set_baudrate(id)) {
-      LOG_ERR("GPS[%d] Failed to detect/set baud rate, continuing anyway...", id);
+    baudrate_ok = false;
+    for (int retry = 0; retry < 3; retry++) {
+      LOG_INFO("GPS[%d] Detecting UART baud rate (attempt %d/3)...", id, retry + 1);
+
+      if (gps_detect_and_set_baudrate(id)) {
+        baudrate_ok = true;
+        LOG_INFO("GPS[%d] ✓ Baud rate detection successful", id);
+        break;
+      }
+
+      // 재시도 전 대기 (마지막 시도가 아니면)
+      if (retry < 2) {
+        LOG_WARN("GPS[%d] Baud rate detection failed, retrying in 1s...", id);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+      }
+    }
+
+    if (!baudrate_ok) {
+      LOG_ERR("GPS[%d] ✗✗✗ Baud rate detection failed after 3 attempts ✗✗✗", id);
+      LOG_ERR("GPS[%d] GPS initialization aborted - check GPS module", id);
+
+      // 에러 상태로 대기 (초기화 진행 안 함)
+      while (1) {
+        if (use_led) {
+          led_set_color(2, LED_COLOR_RED);
+          led_set_toggle(2);
+        }
+        vTaskDelay(pdMS_TO_TICKS(1000));
+      }
     }
   }
+
+  // 통신 확인됨 - 초기화 진행
+  LOG_INFO("GPS[%d] UART communication verified - starting initialization...", id);
 
   // Unicore GPS는 바로 초기화 시작
 #if defined(BOARD_TYPE_BASE_UNICORE)
