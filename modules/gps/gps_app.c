@@ -3,6 +3,7 @@
 #include "gps.h"
 #include "gps_port.h"
 #include "gps_unicore.h"
+#include "ubx_init.h"
 #include "ntrip_app.h"
 #include "rtcm.h"
 #include "led.h"
@@ -948,4 +949,30 @@ bool gps_send_raw_data(gps_id_t id, const uint8_t *data, size_t len) {
     LOG_ERR("GPS[%d] failed to acquire mutex", id);
     return false;
   }
+}
+
+bool gps_factory_reset_async(gps_id_t id, gps_init_callback_t callback, void *user_data)
+{
+  if (id >= GPS_ID_MAX || !gps_instances[id].enabled) {
+    LOG_ERR("GPS[%d] invalid or disabled", id);
+    return false;
+  }
+
+  gps_instance_t *inst = &gps_instances[id];
+
+  // F9P GPS만 지원
+  if (inst->type != GPS_TYPE_F9P) {
+    LOG_ERR("GPS[%d] factory reset only supported for F9P, current type: %d", id, inst->type);
+    return false;
+  }
+
+  LOG_INFO("GPS[%d] Starting F9P factory reset...", id);
+
+  // ubx_factory_reset 호출
+  if (!ubx_factory_reset(&inst->gps, callback, user_data)) {
+    LOG_ERR("GPS[%d] Failed to start factory reset", id);
+    return false;
+  }
+
+  return true;
 }

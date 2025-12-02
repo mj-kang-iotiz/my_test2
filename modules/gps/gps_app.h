@@ -82,4 +82,14 @@ bool gps_gga_avg_can_read(gps_id_t id);
  */
 bool gps_get_gga_avg(gps_id_t id, double *lat, double *lon, double *alt);
 
+/**
+ * @brief F9P 팩토리 리셋 (비동기)
+ *
+ * @param id GPS ID
+ * @param callback 완료 콜백 (NULL 가능)
+ * @param user_data 사용자 데이터
+ * @return true: 리셋 시작 성공, false: 실패
+ */
+bool gps_factory_reset_async(gps_id_t id, gps_init_callback_t callback, void *user_data);
+
 #endif

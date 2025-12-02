@@ -1043,3 +1043,87 @@ void ubx_init_async_cancel(gps_t *gps)
 
   ctx->current_step = 0;
 }
+
+/**
+ * @brief UBX CFG-CFG 메시지 전송 (설정 초기화/저장/로드)
+ *
+ * @param[inout] gps GPS 구조체
+ * @param[in] clear_mask Clear mask (0x1F = all sections)
+ * @param[in] save_mask Save mask (0x00 = don't save, 0x1F = save all)
+ * @param[in] load_mask Load mask (0x1F = load all / factory reset)
+ * @param[in] callback ACK/NAK 콜백
+ * @param[in] user_data 콜백 데이터
+ * @return true 전송 성공, false 실패
+ */
+bool ubx_send_cfg_cfg(gps_t *gps, uint32_t clear_mask, uint32_t save_mask,
+                      uint32_t load_mask, ubx_ack_callback_t callback, void *user_data)
+{
+  ubx_cmd_handler_t *handler = &gps->ubx_cmd_handler;
+
+  // 이미 대기 중인 명령이 있으면 실패
+  if (handler->state == UBX_CMD_STATE_WAITING)
+  {
+    return false;
+  }
+
+  // UBX-CFG-CFG 메시지 생성
+  uint8_t msg[256];
+  size_t offset = 0;
+
+  // Sync bytes
+  msg[offset++] = UBX_SYNC_1;
+  msg[offset++] = UBX_SYNC_2;
+
+  // Class & ID
+  msg[offset++] = GPS_UBX_CLASS_CFG;
+  msg[offset++] = GPS_UBX_CFG_ID_CFG;
+
+  // Payload length (13 bytes)
+  msg[offset++] = 13;
+  msg[offset++] = 0;
+
+  size_t payload_start = offset;
+
+  // clearMask (4 bytes, little-endian)
+  msg[offset++] = (clear_mask >> 0) & 0xFF;
+  msg[offset++] = (clear_mask >> 8) & 0xFF;
+  msg[offset++] = (clear_mask >> 16) & 0xFF;
+  msg[offset++] = (clear_mask >> 24) & 0xFF;
+
+  // saveMask (4 bytes, little-endian)
+  msg[offset++] = (save_mask >> 0) & 0xFF;
+  msg[offset++] = (save_mask >> 8) & 0xFF;
+  msg[offset++] = (save_mask >> 16) & 0xFF;
+  msg[offset++] = (save_mask >> 24) & 0xFF;
+
+  // loadMask (4 bytes, little-endian)
+  msg[offset++] = (load_mask >> 0) & 0xFF;
+  msg[offset++] = (load_mask >> 8) & 0xFF;
+  msg[offset++] = (load_mask >> 16) & 0xFF;
+  msg[offset++] = (load_mask >> 24) & 0xFF;
+
+  // deviceMask (1 byte) - optional but included
+  // 0x17 = BBR + Flash + EEPROM
+  msg[offset++] = 0x17;
+
+  // Checksum 계산
+  uint8_t ck_a, ck_b;
+  ubx_calc_checksum(&msg[2], offset - 2, &ck_a, &ck_b);
+  msg[offset++] = ck_a;
+  msg[offset++] = ck_b;
+
+  // Pending 설정
+  handler->pending_cls = GPS_UBX_CLASS_CFG;
+  handler->pending_id = GPS_UBX_CFG_ID_CFG;
+  handler->state = UBX_CMD_STATE_WAITING;
+  handler->timestamp = get_tick_ms();
+
+  // 콜백 등록
+  handler->callback = callback;
+  handler->callback_data = user_data;
+
+  // UART로 전송
+  gps->ops->send((const char *)msg, offset);
+
+  return true;
+}
