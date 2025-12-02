@@ -3,6 +3,7 @@
 #include "gps.h"
 #include "gps_port.h"
 #include "gps_unicore.h"
+#include "ubx_init.h"
 #include "ntrip_app.h"
 #include "rtcm.h"
 #include "led.h"
@@ -585,6 +586,53 @@ static void gps_process_task(void *pvParameter) {
   }
 
   vTaskDelay(pdMS_TO_TICKS(2000));
+
+#if defined(BOARD_TYPE_BASE_UBLOX) || defined(BOARD_TYPE_ROVER_UBLOX)
+  // F9P baud rate 자동 감지 및 변경
+  LOG_INFO("GPS[%d] F9P 초기화 시작...", id);
+
+  uint32_t detected_baud = 0;
+  if (gps_port_detect_baudrate(id, &detected_baud))
+  {
+    LOG_INFO("GPS[%d] 현재 baud rate: %u bps", id, detected_baud);
+
+    // 38400bps이면 115200bps로 변경
+    if (detected_baud == 38400)
+    {
+      LOG_WARN("GPS[%d] F9P가 38400 bps로 설정되어 있음. 115200 bps로 변경 시작...", id);
+
+      // F9P UART1 baud rate를 115200으로 변경 (UART1은 MCU와 연결된 포트)
+      if (ubx_set_uart_baudrate(&inst->gps, 1, 115200, 5000))
+      {
+        LOG_INFO("GPS[%d] F9P UART1 baud rate 변경 명령 전송 성공", id);
+
+        // 1초 대기 (F9P가 설정을 적용하는 시간)
+        vTaskDelay(pdMS_TO_TICKS(1000));
+
+        // MCU UART를 115200으로 변경
+        gps_port_set_baudrate(id, 115200);
+        LOG_INFO("GPS[%d] MCU UART baud rate를 115200으로 변경 완료", id);
+
+        // 안정화 대기
+        vTaskDelay(pdMS_TO_TICKS(500));
+      }
+      else
+      {
+        LOG_ERR("GPS[%d] F9P baud rate 변경 실패", id);
+      }
+    }
+    else if (detected_baud == 115200)
+    {
+      LOG_INFO("GPS[%d] F9P가 이미 115200 bps로 설정되어 있음", id);
+    }
+  }
+  else
+  {
+    LOG_WARN("GPS[%d] Baud rate 자동 감지 실패. 기본값 115200 bps 사용", id);
+    gps_port_set_baudrate(id, 115200);
+  }
+#endif
+
 #if defined(BOARD_TYPE_BASE_UNICORE)
   gps_init_um982_base_async(id, overall_init_complete);
 #elif defined(BOARD_TYPE_ROVER_UNICORE)

@@ -25,6 +25,10 @@ static gps_type_t uart4_gps_type = GPS_TYPE_F9P;
 static gps_id_t uart2_gps_id = GPS_ID_BASE;
 static gps_id_t uart4_gps_id = GPS_ID_ROVER;
 
+// Baud rate 저장 변수
+static uint32_t uart2_baudrate = 115200;
+static uint32_t uart4_baudrate = 115200;
+
 
 static const gps_hal_ops_t gps_rtk_uart4_ops;
 
@@ -592,4 +596,157 @@ void gps_port_set_queue(gps_id_t id, QueueHandle_t queue)
   {
     gps_queues[id] = queue;
   }
+}
+
+/**
+ * @brief UART baud rate 동적 변경
+ *
+ * @param id GPS ID (GPS_ID_BASE or GPS_ID_ROVER)
+ * @param baudrate 새로운 baud rate (예: 38400, 115200)
+ * @return 0: 성공, -1: 실패
+ */
+int gps_port_set_baudrate(gps_id_t id, uint32_t baudrate)
+{
+  if (id >= GPS_CNT)
+  {
+    LOG_ERR("Invalid GPS ID: %d", id);
+    return -1;
+  }
+
+  LOG_INFO("GPS[%d] UART baud rate 변경: %u bps", id, baudrate);
+
+  if (id == GPS_ID_BASE)
+  {
+    // USART2 baud rate 변경
+    LL_USART_Disable(USART2);
+    LL_USART_SetBaudRate(USART2, SystemCoreClock / 4, LL_USART_OVERSAMPLING_16, baudrate);
+    LL_USART_Enable(USART2);
+    uart2_baudrate = baudrate;
+    LOG_DEBUG("USART2 baud rate 변경 완료: %u bps", baudrate);
+  }
+  else if (id == GPS_ID_ROVER)
+  {
+    // UART4 baud rate 변경
+    LL_USART_Disable(UART4);
+    LL_USART_SetBaudRate(UART4, SystemCoreClock / 4, LL_USART_OVERSAMPLING_16, baudrate);
+    LL_USART_Enable(UART4);
+    uart4_baudrate = baudrate;
+    LOG_DEBUG("UART4 baud rate 변경 완료: %u bps", baudrate);
+  }
+
+  return 0;
+}
+
+/**
+ * @brief 현재 설정된 UART baud rate 조회
+ *
+ * @param id GPS ID
+ * @return 현재 baud rate, 실패 시 0
+ */
+uint32_t gps_port_get_baudrate(gps_id_t id)
+{
+  if (id >= GPS_CNT)
+  {
+    return 0;
+  }
+
+  if (id == GPS_ID_BASE)
+  {
+    return uart2_baudrate;
+  }
+  else if (id == GPS_ID_ROVER)
+  {
+    return uart4_baudrate;
+  }
+
+  return 0;
+}
+
+/**
+ * @brief F9P baud rate 자동 감지 (38400 또는 115200)
+ *
+ * @param id GPS ID
+ * @param detected_baudrate 감지된 baud rate 저장 포인터
+ * @return true: 감지 성공, false: 감지 실패
+ */
+bool gps_port_detect_baudrate(gps_id_t id, uint32_t *detected_baudrate)
+{
+  if (id >= GPS_CNT || !detected_baudrate)
+  {
+    LOG_ERR("Invalid parameters");
+    return false;
+  }
+
+  // 테스트할 baud rate 목록 (F9P 기본값: 38400, 일반적으로 변경: 115200)
+  const uint32_t test_baudrates[] = {115200, 38400};
+  const size_t test_count = sizeof(test_baudrates) / sizeof(test_baudrates[0]);
+
+  LOG_INFO("GPS[%d] baud rate 자동 감지 시작...", id);
+
+  for (size_t i = 0; i < test_count; i++)
+  {
+    uint32_t test_baud = test_baudrates[i];
+    LOG_DEBUG("  테스트: %u bps", test_baud);
+
+    // Baud rate 변경
+    gps_port_set_baudrate(id, test_baud);
+
+    // 안정화 대기 (50ms)
+    HAL_Delay(50);
+
+    // 수신 버퍼 초기화
+    uint32_t start_pos = gps_port_get_rx_pos(id);
+
+    // 500ms 동안 데이터 수신 대기
+    HAL_Delay(500);
+
+    uint32_t end_pos = gps_port_get_rx_pos(id);
+
+    // 데이터 수신 확인
+    if (end_pos > start_pos)
+    {
+      // UBX 헤더 (0xB5 0x62) 또는 NMEA 시작 문자 ($) 확인
+      char *buf = gps_port_get_recv_buf(id);
+      size_t data_len = end_pos - start_pos;
+
+      bool ubx_found = false;
+      bool nmea_found = false;
+
+      for (size_t j = start_pos; j < end_pos - 1 && j < 2048 - 1; j++)
+      {
+        // UBX 헤더 확인
+        if ((uint8_t)buf[j] == 0xB5 && (uint8_t)buf[j + 1] == 0x62)
+        {
+          ubx_found = true;
+          break;
+        }
+
+        // NMEA 헤더 확인
+        if (buf[j] == '$')
+        {
+          nmea_found = true;
+          break;
+        }
+      }
+
+      if (ubx_found || nmea_found)
+      {
+        *detected_baudrate = test_baud;
+        LOG_INFO("GPS[%d] baud rate 감지 성공: %u bps (%s 프로토콜)",
+                 id, test_baud, ubx_found ? "UBX" : "NMEA");
+        return true;
+      }
+      else
+      {
+        LOG_DEBUG("  데이터 수신됨 (%u bytes) 하지만 유효한 프로토콜 헤더 없음", data_len);
+      }
+    }
+    else
+    {
+      LOG_DEBUG("  데이터 수신 없음");
+    }
+  }
+
+  LOG_ERR("GPS[%d] baud rate 자동 감지 실패", id);
+  return false;
 }

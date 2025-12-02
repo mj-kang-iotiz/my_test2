@@ -13,4 +13,9 @@ uint32_t gps_port_get_rx_pos(gps_id_t id);
 char *gps_port_get_recv_buf(gps_id_t id);
 void gps_port_set_queue(gps_id_t id, QueueHandle_t queue);
 
+// Baud rate 관련 함수
+int gps_port_set_baudrate(gps_id_t id, uint32_t baudrate);
+uint32_t gps_port_get_baudrate(gps_id_t id);
+bool gps_port_detect_baudrate(gps_id_t id, uint32_t *detected_baudrate);
+
 #endif
