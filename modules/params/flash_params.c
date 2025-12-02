@@ -1,3 +1,4 @@
+#include <string.h>
 #include "flash_params.h"
 
 #ifndef TAG
@@ -12,11 +13,11 @@
 
 static const user_params_t user_default_params = {
     .magic = FLASH_MAGIC_NUMBER,
-    .ntrip_url = "",
-    .ntrip_port = "",
-    .ntrip_id = "",
-    .ntrip_pw = "",
-    .ntrip_mountpoint = "",
+    .ntrip_url = "ntrip.hi-rtk.io",
+    .ntrip_port = "2101",
+    .ntrip_id = "iotiz1",
+    .ntrip_pw = "1234",
+    .ntrip_mountpoint = "RTK_SMT_MSG",
     .use_manual_position = 0,
     .lat = "",
     .lon = "",

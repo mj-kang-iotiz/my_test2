@@ -255,8 +255,8 @@ static void lte_cpin_check_callback(gsm_t *gsm, gsm_cmd_t cmd, void *msg,
   LOG_INFO("[7/9] AT+CGDCONT APN 설정...");
 
   gsm_pdp_context_t ctx = {
-      .cid = 1, .type = GSM_PDP_TYPE_IP, .apn = "internet.lguplus.co.kr"};
-  gsm_send_at_cgdcont(gsm, GSM_AT_WRITE, &ctx, lte_apn_set_callback);
+      .cid = 1, .type = GSM_PDP_TYPE_IP, .apn = "m2m-router.lguplus.co.kr"};
+  gsm_send_at_cgdcont(gsm, GSM_AT_WRITE, &ctx, lte_apn_set_callback); // internet.lguplus.co.kr
 }
 
 /**
@@ -297,7 +297,7 @@ static void lte_apn_verify_callback(gsm_t *gsm, gsm_cmd_t cmd, void *msg,
 
     // 설정한 APN이 맞는지 확인
     gsm_pdp_context_t *ctx = &m->cgdcont.contexts[0];
-    if (ctx->cid == 1 && strcmp(ctx->apn, "internet.lguplus.co.kr") == 0) {
+    if (ctx->cid == 1 && strcmp(ctx->apn, "m2m-router.lguplus.co.kr") == 0) { // internet.lguplus.co.kr
       LOG_INFO("[8/9] APN 정상 등록: %s", ctx->apn);
       lte_init_state = LTE_INIT_NETWORK_CHECK;
 
@@ -436,6 +436,6 @@ void lte_reinit_from_apn(void) {
   // APN 설정 시작
   LOG_INFO("[재초기화] AT+CGDCONT APN 설정...");
   gsm_pdp_context_t ctx = {
-      .cid = 1, .type = GSM_PDP_TYPE_IP, .apn = "internet.lguplus.co.kr"};
+      .cid = 1, .type = GSM_PDP_TYPE_IP, .apn = "m2m-router.lguplus.co.kr"};
   gsm_send_at_cgdcont(gsm_handle_ptr, GSM_AT_WRITE, &ctx, lte_apn_set_callback);
 }

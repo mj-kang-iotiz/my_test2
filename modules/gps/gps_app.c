@@ -189,7 +189,7 @@ void _add_hp_avg_data(gps_instance_t *inst) {
 #define UM982_BASE_CMD_COUNT (sizeof(um982_base_cmds) / sizeof(um982_base_cmds[0]))
 
 static const char *um982_base_cmds[] = {
-	// "CONFIG ANTENNA POWERON\r\n",
+	"CONFIG ANTENNA POWERON\r\n",
   "unmask BDS\r\n",
   "unmask GPS\r\n",
   "unmask GLO\r\n",
@@ -202,6 +202,7 @@ static const char *um982_base_cmds[] = {
   "rtcm1084 com1 2\r\n",
   "rtcm1094 com1 2\r\n",
   "gpgga com1 1\r\n",
+  "gpgsv com1 1\r\n",
   "BESTNAVB 1\r\n",
 };
 
@@ -216,6 +217,7 @@ static const char *um982_rover_cmds[] = {
   "gpgsv com1 1\r\n",
   "gpths com1 1\r\n",
   "BESTNAVB 1\r\n",
+  // UNIHEADINGB
 };
 
 #define UM982_ROVER_CMD_COUNT (sizeof(um982_rover_cmds) / sizeof(um982_rover_cmds[0]))
@@ -400,10 +402,14 @@ void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
   switch (protocol) {
   case GPS_PROTOCOL_NMEA:
     if (msg.nmea == GPS_NMEA_MSG_GGA) {
-      if (gps->nmea_data.gga.fix >= GPS_FIX_GPS) {
-        _add_gga_avg_data(inst, gps->nmea_data.gga.lat, gps->nmea_data.gga.lon,
-                          gps->nmea_data.gga.alt);
-      }
+    	if(config->board == BOARD_TYPE_BASE_F9P || config->board == BOARD_TYPE_BASE_UM982)
+    	{
+    	    if (gps->nmea_data.gga.fix >= GPS_FIX_RTK_FIX)
+    	    {
+    	        _add_gga_avg_data(inst, gps->nmea_data.gga.lat, gps->nmea_data.gga.lon,
+    	                          gps->nmea_data.gga.alt);
+    	    }
+    	}
 
       if (gps->nmea_data.gga_is_rdy)
       {
@@ -426,8 +432,11 @@ void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
 
   case GPS_PROTOCOL_UBX:
     if (msg.ubx.id == GPS_UBX_NAV_ID_HPPOSLLH) {
-      if (gps->nmea_data.gga.fix >= GPS_FIX_GPS) {
-        _add_hp_avg_data(inst);
+      if(config->board == BOARD_TYPE_BASE_F9P)
+      {
+        if (gps->nmea_data.gga.fix >= GPS_FIX_RTK_FIX) {
+          _add_hp_avg_data(inst);
+        }
       }
     }
 
@@ -580,9 +589,34 @@ static void gps_process_task(void *pvParameter) {
   gps_init_um982_base_async(id, overall_init_complete);
 #elif defined(BOARD_TYPE_ROVER_UNICORE)
   gps_init_um982_rover_async(id, overall_init_complete);
+#elif defined(BOARD_TYPE_BASE_UBLOX)
+  ubx_base_init(&inst->gps);
+#elif defined(BOARD_TYPE_ROVER_UBLOX)
+  if(id == GPS_ID_BASE)
+  {
+    ubx_moving_base_init(&inst->gps);
+  }
+  else if(id == GPS_ID_ROVER)
+  {
+    ubx_rover_init(&inst->gps);
+  }
 #endif
-
+  bool init_done = false;
+  
   while (1) {
+    ubx_init_async_process(&inst->gps);
+
+    if (!init_done) {
+            ubx_init_state_t state = ubx_init_async_get_state(&inst->gps);
+            if (state == UBX_INIT_STATE_DONE) {
+                printf("✓ UBX initialization completed!\n");
+                init_done = true;
+            } else if (state == UBX_INIT_STATE_ERROR) {
+                printf("✗ UBX initialization failed!\n");
+                init_done = true;
+            }
+    }
+
     xQueueReceive(inst->queue, &dummy,
                   portMAX_DELAY); // 단순 신호 전달용. 받는 데이터 없음
 

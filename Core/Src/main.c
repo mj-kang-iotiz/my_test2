@@ -34,6 +34,7 @@
 #include "rs485_app.h"
 #include "led.h"
 #include "rtcm.h"
+#include "flash_params.h"
 #include "queue.h"
 #include "semphr.h"
 #include "task.h"
@@ -95,18 +96,28 @@ uint32_t uart_send(USART_TypeDef *handle, const char *buf, size_t len) {
 // }
 
 void initThread(void *pvParameter) {
+	const board_config_t *config = board_get_config();
+
+	flash_params_init();
+//	flash_params_set_ntrip_url("www.gnssdata.or.kr");
+//	flash_params_set_ntrip_port("2101");
+//	flash_params_set_ntrip_mountpoint("SONP-RTCM32");
+//	flash_params_set_ntrip_id("mj.kang@iotiz.kr");
+//	flash_params_set_ntrip_pw("gnss");
+
+
   led_init();
   led_set_color(3, LED_COLOR_RED);
   led_set_state(3, true);
-//  gps_init_all();
+  gps_init_all();
 //  gsm_task_create(NULL);
 //  lora_instance_init();
-  rs485_init_all();
-//  lora_start_tx_test();
-//  lora_uart3_hw_init();
-//  lora_uart3_comm_start();
-//  lora_uart3_send("at+help\r\n", 9);
-//  HAL_Delay(10000);
+
+  if(config->use_rs485)
+  {
+	  rs485_init_all();
+  }
+
   vTaskDelete(NULL);
 }
 
@@ -143,6 +154,40 @@ int main(void) {
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+#if defined(BOARD_TYPE_BASE_UNICORE) || defined(BOARD_TYPE_BASE_UBLOX)
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_10, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : PC10 */
+  GPIO_InitStruct.Pin = GPIO_PIN_10;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PC11 */
+  GPIO_InitStruct.Pin = GPIO_PIN_11;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+#elif defined(BOARD_TYPE_ROVER_UNICORE) || defined(BOARD_TYPE_ROVER_UBLOX)
+    /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_10|GPIO_PIN_11, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : PC10 PC11 */
+  GPIO_InitStruct.Pin = GPIO_PIN_10|GPIO_PIN_11;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+#endif
+
   MX_DMA_Init();
 //  MX_USART6_UART_Init();
   MX_ADC1_Init();

@@ -47,61 +47,6 @@ static const char *lora_p2p_rover_cmds[] = {
 #define LORA_P2P_BASE_CMD_COUNT (sizeof(lora_p2p_base_cmds) / sizeof(lora_p2p_base_cmds[0]))
 #define LORA_P2P_ROVER_CMD_COUNT (sizeof(lora_p2p_rover_cmds) / sizeof(lora_p2p_rover_cmds[0]))
 
-static void lora_tx_test_task(void *pvParameter)
-{
-
-  // "hello world\r\n"의 HEX 표현
-  const char *test_data = "68656C6C6F20776F726C640D0A68656C6C6F20776F726C640D0A68656C6C6F20776F726C640D0A68656C6C6F20776F726C640D0A68656C6C6F20776F726C640D0A68656C6C6F20776F726C640D0A68656C6C6F20776F726C640D0A68656C6C6F20776F726C640D0A68656C6C6F20776F726C640D0D0D";
-
-  LOG_INFO("LoRa TX Test Task started - sending 'hello world\\r\\n' every 10 seconds");
-
-  // 초기화 완료 대기 (5초)
-  vTaskDelay(pdMS_TO_TICKS(5000));
-
-  while (1)
-  {
-    LOG_INFO("Sending test data: hello world\\r\\n");
-
-    if (lora_send_p2p_data(test_data, LORA_AT_CMD_TIMEOUT_MS))
-    {
-      LOG_INFO("Test data sent successfully");
-    }
-    else
-    {
-      LOG_ERR("Failed to send test data");
-    }
-
-    // 10초 대기
-    vTaskDelay(pdMS_TO_TICKS(100));
-  }
-
-  vTaskDelete(NULL);
-}
-
-/**
-
- * @brief LoRa 송신 테스트 시작
-
- */
-
-void lora_start_tx_test(void)
-{
-
-  BaseType_t ret = xTaskCreate(lora_tx_test_task, "lora_tx_test", 512,
-
-                               NULL, tskIDLE_PRIORITY + 2, NULL);
-
-  if (ret != pdPASS)
-  {
-
-    LOG_ERR("Failed to create LoRa TX Test Task");
-  }
-  else
-  {
-
-    LOG_INFO("LoRa TX Test Task created successfully");
-  }
-}
 
 typedef void (*lora_init_callback_t)(bool success, void *user_data);
 
@@ -823,18 +768,14 @@ static void lora_process_task(void *pvParameter)
         memcpy(temp_buf, &lora_recv[old_pos], len);
         temp_buf[len] = '\0';
 
-        LOG_INFO("LoRa recv: %s", temp_buf);
-
         // AT 명령어 응답 처리
         if (instance.current_cmd_req != NULL)
         {
-          LOG_INFO("current_cmd_req is NOT NULL, parsing response...");
           bool result = lora_parse_at_response(temp_buf, len);
           LOG_INFO("Parse result: %s", result ? "OK" : "ERROR/NONE");
 
           if (strstr(temp_buf, "OK") || strstr(temp_buf, "ERROR"))
           {
-            LOG_INFO("OK/ERROR detected, giving semaphore...");
             // 응답 결과 저장
             if (instance.current_cmd_req->is_async)
             {
@@ -847,11 +788,10 @@ static void lora_process_task(void *pvParameter)
 
             // 세마포어 해제 (TX Task로 응답 완료 알림)
             xSemaphoreGive(instance.current_cmd_req->response_sem);
-            LOG_INFO("Semaphore given!");
           }
           else
           {
-            LOG_WARN("No OK/ERROR in response, ignoring...");
+            LOG_WARN("No OK/ERROR in response");
           }
         }
         else

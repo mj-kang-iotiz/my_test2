@@ -93,6 +93,22 @@ static void parse_nmea_gga(gps_t *gps) {
   }
 }
 
+static void parse_nmea_gpths(gps_t *gps)
+{
+  switch (gps->nmea.term_num) {
+  case 1:
+    gps->nmea_data.ths.heading = gps_parse_double(gps);
+    break;
+
+  case 2:
+    gps->nmea_data.ths.mode = gps_parse_character(gps);
+    break;
+
+  default:
+    break;
+  }
+}
+
 /**
  * @brief NMEA183 프로토콜 파싱
  *
@@ -127,7 +143,10 @@ uint8_t gps_parse_nmea_term(gps_t *gps) {
         }
       } else if (!strncmp(msg, "RMC", 3)) {
         gps->nmea.msg_type = GPS_NMEA_MSG_RMC;
-      } else {
+      } else if (!strncmp(msg, "THS", 3)) {
+        gps->nmea.msg_type = GPS_NMEA_MSG_THS;
+      }
+      else {
         gps->nmea.msg_type = GPS_NMEA_MSG_NONE;
         gps->state = GPS_PARSE_STATE_NONE;
 
@@ -142,6 +161,8 @@ uint8_t gps_parse_nmea_term(gps_t *gps) {
 
   if (gps->nmea.msg_type == GPS_NMEA_MSG_GGA) {
     parse_nmea_gga(gps);
+  } else if (gps->nmea.msg_type == GPS_NMEA_MSG_THS) {
+	  parse_nmea_gpths(gps);
   }
 
   return 1;

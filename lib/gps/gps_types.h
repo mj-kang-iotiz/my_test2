@@ -83,6 +83,7 @@ typedef enum {
   GPS_NMEA_MSG_NONE = 0,
   GPS_NMEA_MSG_GGA = 1,
   GPS_NMEA_MSG_RMC = 2,
+  GPS_NMEA_MSG_THS = 3,
   GPS_NMEA_MSG_INVALID = UINT8_MAX
 } gps_nmea_msg_t;
 

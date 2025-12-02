@@ -67,8 +67,8 @@ typedef enum {
 } gps_type_t;
 
 typedef enum {
-  GPS_ID_BASE = 0, // 기준국 GPS
-  GPS_ID_ROVER,    // 로버 GPS
+  GPS_ID_BASE = 0,
+  GPS_ID_ROVER,
   GPS_ID_MAX
 } gps_id_t;
 

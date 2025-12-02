@@ -44,6 +44,21 @@ typedef struct {
   double geo_sep;
 } gps_gga_t;
 
+typedef enum
+{
+  GPS_THS_MODE_AUTO = 'A',
+  GPS_THS_MODE_DR = 'E',
+  GPS_THS_MODE_MANUAL = 'M',
+  GPS_THS_MODE_SIMULATOR = 'S',
+  GPS_THS_MODE_INVALID = 'V'
+}gps_ths_mode_t;
+
+typedef struct
+{
+  double heading;
+  gps_ths_mode_t mode;
+}gps_ths_t;
+
 /**
  * @brief 파싱한 NMEA 183 프로토콜 데이터
  *
@@ -55,6 +70,7 @@ typedef struct {
   uint8_t gga_raw_pos;
   bool gga_is_rdy;
 #endif
+  gps_ths_t ths;
 } gps_nmea_data_t;
 
 /**
