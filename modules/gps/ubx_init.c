@@ -297,16 +297,50 @@ bool ubx_set_uart_baudrate(gps_t* gps, uint8_t uart_num, uint32_t baudrate, uint
 }
 
 /**
- * @brief F9P 설정 전체 초기화 (공장 초기화)
+ * @brief F9P 설정 전체 초기화 (공장 초기화) - 비동기
  *
  * UBX-CFG-CFG 메시지를 사용하여 모든 설정을 공장 초기값으로 복원합니다.
  * 이후 F9P는 자동으로 재부팅됩니다.
  *
  * @param gps GPS 인스턴스
- * @param timeout_ms 타임아웃 (ms)
- * @return true: 성공, false: 실패
+ * @param callback 완료 콜백 (success: ACK 수신 여부)
+ * @param user_data 콜백에 전달할 사용자 데이터
+ * @return true: 명령 전송 성공, false: 전송 실패
+ *
+ * @note F9P가 재부팅하면서 ACK를 보내지 못할 수 있으므로,
+ *       콜백이 호출되지 않을 수 있습니다. 타임아웃으로 처리됩니다.
+ *
+ * @example 사용 예제:
+ * @code
+ * void on_factory_reset_done(bool success, void *user_data)
+ * {
+ *     if (success) {
+ *         LOG_INFO("Factory reset ACK 수신 (F9P가 재부팅 중...)");
+ *     } else {
+ *         LOG_WARN("Factory reset ACK 미수신 (타임아웃 또는 F9P 재부팅)");
+ *     }
+ *     // 2초 대기 후 재초기화 필요
+ *     vTaskDelay(pdMS_TO_TICKS(2000));
+ *     // F9P 재초기화 로직...
+ * }
+ *
+ * // 비동기 호출
+ * ubx_factory_reset_async(&gps, on_factory_reset_done, NULL);
+ *
+ * // 메인 루프에서 타임아웃 체크 (5초)
+ * while (1) {
+ *     ubx_cmd_state_t state = ubx_get_cmd_state(&gps.ubx_cmd_handler, 5000);
+ *     if (state == UBX_CMD_STATE_TIMEOUT) {
+ *         LOG_WARN("Factory reset timeout (F9P가 재부팅했을 가능성)");
+ *         // 수동으로 콜백 호출
+ *         on_factory_reset_done(false, NULL);
+ *         break;
+ *     }
+ *     vTaskDelay(pdMS_TO_TICKS(100));
+ * }
+ * @endcode
  */
-bool ubx_factory_reset(gps_t* gps, uint32_t timeout_ms)
+bool ubx_factory_reset_async(gps_t* gps, ubx_factory_reset_callback_t callback, void *user_data)
 {
     if (!gps)
     {
@@ -320,11 +354,11 @@ bool ubx_factory_reset(gps_t* gps, uint32_t timeout_ms)
     // Class: 0x06 (CFG), ID: 0x09 (CFG-CFG)
     // Payload:
     //   clearMask (4 bytes): 0x0000061F (모든 설정 클리어)
-    //   loadMask  (4 bytes): 0x0000061F (모든 설정 로드)
     //   saveMask  (4 bytes): 0x00000000 (저장 안함, 공장 초기화이므로)
+    //   loadMask  (4 bytes): 0x0000061F (모든 설정 로드)
     //   deviceMask (1 byte): 0x17 (BBR, Flash, EEPROM)
 
-    uint8_t msg[17];
+    uint8_t msg[19];  // 17바이트였는데 실제로는 19바이트 필요
     size_t offset = 0;
 
     // Sync bytes
@@ -332,8 +366,10 @@ bool ubx_factory_reset(gps_t* gps, uint32_t timeout_ms)
     msg[offset++] = 0x62;  // UBX_SYNC_2
 
     // Class & ID
-    msg[offset++] = 0x06;  // GPS_UBX_CLASS_CFG
-    msg[offset++] = 0x09;  // CFG-CFG
+    uint8_t msg_class = 0x06;  // GPS_UBX_CLASS_CFG
+    uint8_t msg_id = 0x09;     // CFG-CFG
+    msg[offset++] = msg_class;
+    msg[offset++] = msg_id;
 
     // Payload length
     msg[offset++] = 0x0D;  // 13 bytes (little-endian)
@@ -367,19 +403,38 @@ bool ubx_factory_reset(gps_t* gps, uint32_t timeout_ms)
     msg[offset++] = ck_a;
     msg[offset++] = ck_b;
 
+    // Command handler 설정 (ACK/NAK 대기)
+    ubx_cmd_handler_t *handler = &gps->ubx_cmd_handler;
+
+    // 이미 대기 중인 명령이 있으면 실패
+    if (handler->state == UBX_CMD_STATE_WAITING)
+    {
+        LOG_ERR("Another command is already pending");
+        return false;
+    }
+
+    // 콜백을 wrapper로 감싸서 저장 (타입 캐스팅)
+    handler->callback = (ubx_ack_callback_t)callback;
+    handler->callback_data = user_data;
+    handler->pending_cls = msg_class;
+    handler->pending_id = msg_id;
+    handler->state = UBX_CMD_STATE_WAITING;
+    handler->timestamp = xTaskGetTickCount() * portTICK_PERIOD_MS;
+
     // GPS에 전송
     if (gps->ops && gps->ops->send)
     {
         gps->ops->send((const char*)msg, offset);
-        LOG_INFO("F9P 공장 초기화 명령 전송 완료 (F9P 재부팅 예상)");
-
-        // 공장 초기화 후 F9P가 재부팅하므로 ACK를 받지 못할 수 있음
-        // 따라서 단순히 명령을 보내는 것으로 충분
+        LOG_INFO("F9P 공장 초기화 명령 전송 완료 (ACK 대기 중...)");
+        LOG_WARN("주의: F9P가 재부팅하면 ACK를 받지 못할 수 있습니다");
         return true;
     }
     else
     {
         LOG_ERR("GPS send function not available");
+        handler->state = UBX_CMD_STATE_IDLE;
+        handler->callback = NULL;
+        handler->callback_data = NULL;
         return false;
     }
 }
