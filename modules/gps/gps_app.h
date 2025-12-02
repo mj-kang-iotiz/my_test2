@@ -84,4 +84,21 @@ bool gps_get_gga_avg(gps_id_t id, double *lat, double *lon, double *alt);
 
 bool gps_factory_reset_async(gps_id_t id, gps_init_callback_t callback, void *user_data);
 
+/**
+ * @brief GPS와의 통신을 테스트 (UBX poll 메시지 전송 및 응답 확인)
+ *
+ * @param id GPS ID
+ * @param timeout_ms 타임아웃 (ms)
+ * @return true 통신 성공, false 통신 실패
+ */
+bool gps_test_communication(gps_id_t id, uint32_t timeout_ms);
+
+/**
+ * @brief GPS UART baud rate 자동 감지 및 115200bps로 설정
+ *
+ * @param id GPS ID
+ * @return true 성공, false 실패
+ */
+bool gps_detect_and_set_baudrate(gps_id_t id);
+
 #endif

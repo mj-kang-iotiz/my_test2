@@ -595,6 +595,14 @@ static void gps_process_task(void *pvParameter) {
 
   vTaskDelay(pdMS_TO_TICKS(2000));
 
+  // F9P GPS의 경우 baud rate 자동 감지 수행
+  if (inst->type == GPS_TYPE_F9P) {
+    LOG_INFO("GPS[%d] Detecting UART baud rate...", id);
+    if (!gps_detect_and_set_baudrate(id)) {
+      LOG_ERR("GPS[%d] Failed to detect/set baud rate, continuing anyway...", id);
+    }
+  }
+
   gps_factory_reset_async(id, callback_function, NULL);
 
 #if defined(BOARD_TYPE_BASE_UNICORE)
@@ -991,8 +999,172 @@ bool gps_factory_reset_async(gps_id_t id, gps_init_callback_t callback, void *us
 
   }
 
- 
+
 
   return true;
 
+}
+
+/**
+ * @brief GPS와의 통신을 테스트 (UBX poll 메시지 전송 및 응답 확인)
+ *
+ * @param id GPS ID
+ * @param timeout_ms 타임아웃 (ms)
+ * @return true 통신 성공, false 통신 실패
+ */
+bool gps_test_communication(gps_id_t id, uint32_t timeout_ms)
+{
+  if (id >= GPS_ID_MAX || !gps_instances[id].enabled) {
+    LOG_ERR("GPS[%d] invalid or disabled", id);
+    return false;
+  }
+
+  gps_instance_t *inst = &gps_instances[id];
+
+  // UBX-MON-VER poll 메시지 전송 (버전 정보 요청)
+  // Format: 0xB5 0x62 (sync) 0x0A (class: MON) 0x04 (id: VER) 0x00 0x00 (length) CK_A CK_B
+  uint8_t poll_msg[] = {0xB5, 0x62, 0x0A, 0x04, 0x00, 0x00, 0x0E, 0x34};
+
+  LOG_DEBUG("GPS[%d] Testing communication...", id);
+
+  // 수신 버퍼 클리어를 위해 현재 위치 저장
+  uint32_t start_pos = gps_port_get_rx_pos(id);
+
+  // Poll 메시지 전송
+  if (!inst->gps.ops || !inst->gps.ops->send) {
+    LOG_ERR("GPS[%d] send ops not available", id);
+    return false;
+  }
+
+  inst->gps.ops->send((const char *)poll_msg, sizeof(poll_msg));
+
+  // 응답 대기
+  uint32_t start_time = xTaskGetTickCount();
+  bool received_response = false;
+
+  while ((xTaskGetTickCount() - start_time) < pdMS_TO_TICKS(timeout_ms)) {
+    uint32_t current_pos = gps_port_get_rx_pos(id);
+
+    // 데이터 수신 확인
+    if (current_pos != start_pos) {
+      char *recv_buf = gps_port_get_recv_buf(id);
+      size_t data_len = 0;
+
+      if (current_pos > start_pos) {
+        data_len = current_pos - start_pos;
+      } else {
+        data_len = (2048 - start_pos) + current_pos;
+      }
+
+      // UBX 응답 확인 (0xB5 0x62로 시작하는지 확인)
+      if (data_len >= 2) {
+        for (size_t i = 0; i < data_len - 1; i++) {
+          size_t idx = (start_pos + i) % 2048;
+          if (recv_buf[idx] == 0xB5 && recv_buf[(idx + 1) % 2048] == 0x62) {
+            received_response = true;
+            LOG_DEBUG("GPS[%d] Communication OK - received UBX response", id);
+            break;
+          }
+        }
+      }
+
+      if (received_response) {
+        break;
+      }
+
+      start_pos = current_pos;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+
+  if (!received_response) {
+    LOG_DEBUG("GPS[%d] Communication timeout - no response", id);
+  }
+
+  return received_response;
+}
+
+/**
+ * @brief GPS UART baud rate 자동 감지 및 115200bps로 설정
+ *
+ * @param id GPS ID
+ * @return true 성공, false 실패
+ */
+bool gps_detect_and_set_baudrate(gps_id_t id)
+{
+  if (id >= GPS_ID_MAX || !gps_instances[id].enabled) {
+    LOG_ERR("GPS[%d] invalid or disabled", id);
+    return false;
+  }
+
+  gps_instance_t *inst = &gps_instances[id];
+
+  if (inst->type != GPS_TYPE_F9P) {
+    LOG_INFO("GPS[%d] Not F9P type, skipping baud rate detection", id);
+    return true;
+  }
+
+  LOG_INFO("GPS[%d] Starting baud rate detection...", id);
+
+  // 1단계: 현재 baud rate (115200) 테스트
+  LOG_INFO("GPS[%d] Testing 115200 bps...", id);
+  if (gps_test_communication(id, 500)) {
+    LOG_INFO("GPS[%d] Communication OK at 115200 bps", id);
+    return true;
+  }
+
+  // 2단계: 38400 bps로 변경 후 테스트
+  LOG_INFO("GPS[%d] No response at 115200 bps, trying 38400 bps...", id);
+  if (!gps_port_set_baudrate(id, 38400)) {
+    LOG_ERR("GPS[%d] Failed to change to 38400 bps", id);
+    return false;
+  }
+
+  vTaskDelay(pdMS_TO_TICKS(100)); // Baud rate 변경 대기
+
+  if (!gps_test_communication(id, 500)) {
+    LOG_ERR("GPS[%d] No response at 38400 bps either", id);
+    // 115200으로 복원
+    gps_port_set_baudrate(id, 115200);
+    return false;
+  }
+
+  LOG_INFO("GPS[%d] Communication OK at 38400 bps", id);
+
+  // 3단계: GPS 모듈의 baud rate를 115200으로 변경
+  LOG_INFO("GPS[%d] Setting GPS module baud rate to 115200...", id);
+
+  // UBX-CFG-VALSET 메시지로 UART1 baud rate 설정
+  ubx_cfg_item_t baudrate_cfg = {
+    .key_id = 0x40520001, // CFG_BAUDRATE_UART1
+    .value = {0x00, 0xC2, 0x01, 0x00}, // 115200 (little-endian)
+    .value_len = 4,
+  };
+
+  if (!ubx_send_valset_sync(&inst->gps, UBX_CFG_LAYER_RAM, &baudrate_cfg, 1, 2000)) {
+    LOG_ERR("GPS[%d] Failed to set GPS baud rate to 115200", id);
+    return false;
+  }
+
+  LOG_INFO("GPS[%d] GPS module baud rate set to 115200", id);
+
+  // 4단계: MCU UART baud rate를 115200으로 변경
+  vTaskDelay(pdMS_TO_TICKS(100)); // GPS 설정 적용 대기
+
+  if (!gps_port_set_baudrate(id, 115200)) {
+    LOG_ERR("GPS[%d] Failed to change MCU to 115200 bps", id);
+    return false;
+  }
+
+  vTaskDelay(pdMS_TO_TICKS(100)); // Baud rate 변경 대기
+
+  // 5단계: 115200 bps로 통신 확인
+  if (!gps_test_communication(id, 500)) {
+    LOG_ERR("GPS[%d] Failed to communicate at 115200 bps after change", id);
+    return false;
+  }
+
+  LOG_INFO("GPS[%d] Successfully changed to 115200 bps!", id);
+  return true;
 }

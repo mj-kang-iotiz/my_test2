@@ -593,3 +593,49 @@ void gps_port_set_queue(gps_id_t id, QueueHandle_t queue)
     gps_queues[id] = queue;
   }
 }
+
+/**
+ * @brief UART baud rate 변경
+ *
+ * @param id GPS ID
+ * @param baudrate 새로운 baud rate (38400 또는 115200)
+ * @return true 성공, false 실패
+ */
+bool gps_port_set_baudrate(gps_id_t id, uint32_t baudrate)
+{
+  if (id >= GPS_CNT)
+  {
+    LOG_ERR("Invalid GPS ID: %d", id);
+    return false;
+  }
+
+  if (baudrate != 38400 && baudrate != 115200)
+  {
+    LOG_ERR("Unsupported baudrate: %d (only 38400 or 115200)", baudrate);
+    return false;
+  }
+
+  LOG_INFO("GPS[%d] Changing baudrate to %d", id, baudrate);
+
+  if (id == GPS_ID_BASE)
+  {
+    // USART2
+    LL_USART_Disable(USART2);
+    LL_USART_SetBaudRate(USART2, SystemCoreClock / 2, LL_USART_OVERSAMPLING_16, baudrate);
+    LL_USART_Enable(USART2);
+    LOG_INFO("GPS[%d] USART2 baudrate changed to %d", id, baudrate);
+    return true;
+  }
+  else if (id == GPS_ID_ROVER)
+  {
+    // UART4
+    LL_USART_Disable(UART4);
+    LL_USART_SetBaudRate(UART4, SystemCoreClock / 2, LL_USART_OVERSAMPLING_16, baudrate);
+    LL_USART_Enable(UART4);
+    LOG_INFO("GPS[%d] UART4 baudrate changed to %d", id, baudrate);
+    return true;
+  }
+
+  LOG_ERR("GPS[%d] Unknown GPS ID", id);
+  return false;
+}
