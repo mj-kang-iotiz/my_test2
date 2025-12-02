@@ -68,12 +68,18 @@ static void rs485_rx_task(void *pvParameter) {
   rs485_send("hi\r\n", 4);
 
   while (1) {
-    xQueueReceive(inst->rx_queue, &dummy, portMAX_DELAY);
+    // 타임아웃을 추가하여 주기적으로 DMA 상태 확인 (500ms)
+    if (xQueueReceive(inst->rx_queue, &dummy, pdMS_TO_TICKS(500)) == pdTRUE) {
+      LOG_DEBUG("RS485 RX queue received (IDLE interrupt)");
+    }
 
     pos = rs485_port_get_rx_pos();
     char *rs485_recv = rs485_port_get_recv_buf();
 
+    // DMA 카운터 변화 로그 (디버깅용)
     if (pos != old_pos) {
+      LOG_INFO("RS485 DMA pos changed: %d -> %d", old_pos, pos);
+
       if (pos > old_pos) {
         size_t len = pos - old_pos;
         LOG_DEBUG_RAW("RS485 RX: ", &rs485_recv[old_pos], len);

@@ -78,7 +78,7 @@ static void rs485_uart5_init(void)
   GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
   GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_VERY_HIGH;
   GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
-  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+  GPIO_InitStruct.Pull = LL_GPIO_PULL_UP;  // RX 핀은 idle 상태에서 HIGH 유지 필요
   GPIO_InitStruct.Alternate = LL_GPIO_AF_8;
   LL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
@@ -142,6 +142,11 @@ int rs485_uart5_comm_start(void) {
   LL_DMA_EnableStream(DMA1, LL_DMA_STREAM_0);
   LL_USART_Enable(UART5);
 
+  LOG_INFO("RS485 UART5 started - DMA buffer size: %d", sizeof(rs485_recv_buf[0]));
+  LOG_INFO("RS485 DE pin: PC10=%d, /RE pin: PC11=%d",
+           HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_10),
+           HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_11));
+
   return 0;
 }
 
@@ -201,6 +206,7 @@ void USART5_IRQHandler(void) {
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
   if (LL_USART_IsActiveFlag_IDLE(UART5)) {
+    LOG_DEBUG("RS485 IDLE interrupt");
     if (rs485_queues[0] != NULL) {
       uint8_t dummy = 0;
       xQueueSendFromISR(rs485_queues[0], &dummy, &xHigherPriorityTaskWoken);
@@ -210,15 +216,19 @@ void USART5_IRQHandler(void) {
 
 
   if (LL_USART_IsActiveFlag_PE(UART5)) {
+    LOG_ERR("RS485 Parity Error");
     LL_USART_ClearFlag_PE(UART5);
   }
   if (LL_USART_IsActiveFlag_FE(UART5)) {
+    LOG_ERR("RS485 Frame Error");
     LL_USART_ClearFlag_FE(UART5);
   }
   if (LL_USART_IsActiveFlag_ORE(UART5)) {
+    LOG_ERR("RS485 Overrun Error");
     LL_USART_ClearFlag_ORE(UART5);
   }
   if (LL_USART_IsActiveFlag_NE(UART5)) {
+    LOG_ERR("RS485 Noise Error");
     LL_USART_ClearFlag_NE(UART5);
   }
 
