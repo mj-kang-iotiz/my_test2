@@ -556,12 +556,39 @@ static void gps_tx_task(void *pvParameter) {
   vTaskDelete(NULL);
 }
 
+/**
+ * @brief Factory reset 완료 후 UBX 초기화 시작
+ */
 void callback_function(bool success, void *user_data) {
+    gps_id_t id = (gps_id_t)(uintptr_t)user_data;
+
     if (success) {
-       LOG_INFO(" 팩토리 리셋 성공");
+       LOG_INFO("GPS[%d] Factory reset 성공", id);
     } else {
-      LOG_ERR("팩토리 리셋 실패");
+      LOG_ERR("GPS[%d] Factory reset 실패", id);
     }
+
+    if (!success) {
+      return;
+    }
+
+    // Factory reset 완료 후 UBX 초기화 시작
+    gps_instance_t *inst = &gps_instances[id];
+    const board_config_t *config = board_get_config();
+
+#if defined(BOARD_TYPE_BASE_UBLOX)
+    LOG_INFO("GPS[%d] Starting UBX base initialization...", id);
+    ubx_base_init(&inst->gps);
+#elif defined(BOARD_TYPE_ROVER_UBLOX)
+    if(id == GPS_ID_BASE) {
+      LOG_INFO("GPS[%d] Starting UBX moving base initialization...", id);
+      ubx_moving_base_init(&inst->gps);
+    }
+    else if(id == GPS_ID_ROVER) {
+      LOG_INFO("GPS[%d] Starting UBX rover initialization...", id);
+      ubx_rover_init(&inst->gps);
+    }
+#endif
 }
 
 /**
@@ -603,24 +630,16 @@ static void gps_process_task(void *pvParameter) {
     }
   }
 
-  gps_factory_reset_async(id, callback_function, NULL);
-
+  // Unicore GPS는 바로 초기화 시작
 #if defined(BOARD_TYPE_BASE_UNICORE)
   gps_init_um982_base_async(id, overall_init_complete);
 #elif defined(BOARD_TYPE_ROVER_UNICORE)
   gps_init_um982_rover_async(id, overall_init_complete);
-#elif defined(BOARD_TYPE_BASE_UBLOX)
-  ubx_base_init(&inst->gps);
-#elif defined(BOARD_TYPE_ROVER_UBLOX)
-  if(id == GPS_ID_BASE)
-  {
-    ubx_moving_base_init(&inst->gps);
-  }
-  else if(id == GPS_ID_ROVER)
-  {
-    ubx_rover_init(&inst->gps);
-  }
+#elif defined(BOARD_TYPE_BASE_UBLOX) || defined(BOARD_TYPE_ROVER_UBLOX)
+  // F9P GPS는 factory reset 후 콜백에서 UBX 초기화 시작
+  gps_factory_reset_async(id, callback_function, (void *)(uintptr_t)id);
 #endif
+
   bool init_done = false;
   
   while (1) {
