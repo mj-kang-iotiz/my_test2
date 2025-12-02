@@ -94,3 +94,18 @@ float gps_parse_float(gps_t *gps) {
 
   return sign * val / power;
 }
+
+/**
+ * @brief GPS 프로토콜 문자 파싱
+ *
+ * @param[in] gps
+ * @return char 첫 번째 유효 문자 (공백이 아닌)
+ */
+char gps_parse_character(gps_t *gps) {
+  char *term = gps->nmea.term_str;
+
+  for (; term != NULL && *term == ' '; ++term) {
+  }
+
+  return *term;
+}
