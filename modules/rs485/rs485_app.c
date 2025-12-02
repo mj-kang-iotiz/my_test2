@@ -4,6 +4,7 @@
 #include "rs485_cmd.h"
 #include "rs485_port.h"
 #include <string.h>
+#include "board_type.h"
 
 #ifndef TAG
   #define TAG "RS485_APP"

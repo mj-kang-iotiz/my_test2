@@ -245,3 +245,115 @@ bool ubx_moving_base_init(gps_t* gps)
                           ublox_moving_base_configs, sizeof(ublox_moving_base_configs) / sizeof(ublox_moving_base_configs[0]),
         on_init_complete, NULL);
 }
+
+static void on_factory_reset_complete(bool ack, void *user_data)
+
+{
+
+    gps_t *gps = (gps_t *)user_data;
+
+    ubx_init_context_t *ctx = &gps->ubx_init_ctx;
+
+ 
+
+    if (ack)
+
+    {
+
+        LOG_DEBUG("✓ F9P factory reset completed successfully!\n");
+
+        ctx->state = UBX_INIT_STATE_DONE;
+
+ 
+
+        if (ctx->on_complete)
+
+        {
+
+            ctx->on_complete(true, 0, ctx->user_data);
+
+        }
+
+    }
+
+    else
+
+    {
+
+        LOG_ERR("✗ F9P factory reset failed\n");
+
+        ctx->state = UBX_INIT_STATE_ERROR;
+
+ 
+
+        if (ctx->on_complete)
+
+        {
+
+            ctx->on_complete(false, 0, ctx->user_data);
+
+        }
+
+    }
+
+}
+
+ 
+
+bool ubx_factory_reset(gps_t* gps, ubx_init_complete_callback_t callback, void *user_data)
+
+{
+
+    ubx_init_context_t *ctx = &gps->ubx_init_ctx;
+
+ 
+
+    // 이미 초기화 중이면 실패
+
+    if (ctx->state == UBX_INIT_STATE_RUNNING)
+
+    {
+
+        return false;
+
+    }
+
+ 
+
+    // 컨텍스트 초기화
+
+    ctx->state = UBX_INIT_STATE_RUNNING;
+
+    ctx->on_complete = callback;
+
+    ctx->user_data = user_data;
+
+ 
+
+    // UBX-CFG-CFG 메시지 전송
+
+    // clearMask: 0x1F (모든 섹션 클리어)
+
+    // saveMask: 0x00 (저장 안 함)
+
+    // loadMask: 0x1F (모든 섹션 로드 = 팩토리 리셋)
+
+    if (!ubx_send_cfg_cfg(gps, 0x0000001F, 0x00000000, 0x0000001F,
+
+                          on_factory_reset_complete, gps))
+
+    {
+
+        ctx->state = UBX_INIT_STATE_ERROR;
+
+        return false;
+
+    }
+
+ 
+
+    LOG_DEBUG("F9P factory reset initiated...\n");
+
+    return true;
+
+}

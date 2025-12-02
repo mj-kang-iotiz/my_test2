@@ -82,4 +82,6 @@ bool gps_gga_avg_can_read(gps_id_t id);
  */
 bool gps_get_gga_avg(gps_id_t id, double *lat, double *lon, double *alt);
 
+bool gps_factory_reset_async(gps_id_t id, gps_init_callback_t callback, void *user_data);
+
 #endif

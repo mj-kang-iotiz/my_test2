@@ -22,6 +22,9 @@
         "board_config.h": "c",
         "led.h": "c",
         "stdbool.h": "c",
-        "rs485_cmd.h": "c"
+        "rs485_cmd.h": "c",
+        "queue.h": "c",
+        "ble.h": "c",
+        "task.h": "c"
     }
 }

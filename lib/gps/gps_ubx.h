@@ -33,6 +33,7 @@ typedef enum {
  */
  typedef enum {
   GPS_UBX_CFG_ID_NONE = 0,
+  GPS_UBX_CFG_ID_CFG = 0x09,
   GPS_UBX_CFG_ID_VALSET = 0x8A,
   GPS_UBX_CFG_ID_VALGET = 0x8B,
   GPS_UBX_CFG_ID_VALDEL = 0x8C,
@@ -284,5 +285,9 @@ ubx_init_state_t ubx_init_async_get_state(gps_t *gps);
  
 
 void ubx_init_async_cancel(gps_t *gps);
+
+bool ubx_send_cfg_cfg(gps_t *gps, uint32_t clear_mask, uint32_t save_mask,
+
+                      uint32_t load_mask, ubx_ack_callback_t callback, void *user_data);
 
 #endif

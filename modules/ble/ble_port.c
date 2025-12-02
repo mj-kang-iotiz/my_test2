@@ -1,5 +1,6 @@
-#include "rs485_port.h"
+#include "ble_port.h"
 #include "board_config.h"
+#include "board_type.h"
 #include "stm32f4xx_hal.h"
 #include "stm32f4xx_ll_bus.h"
 #include "stm32f4xx_ll_cortex.h"
@@ -10,21 +11,21 @@
 #include "queue.h"
 
 #ifndef TAG
-    #define TAG "RS485_PORT"
+    #define TAG "BLE_PORT"
 #endif
 
 #include "log.h"
 
-#define RS485_PORT_UART USART5
-#define RS485_PORT_UART_DMA DMA1
-#define RS485_PORT_UART_DMA_STREAM LL_DMA_STREAM_0
+#define BLE_PORT_UART USART5
+#define BLE_PORT_UART_DMA DMA1
+#define BLE_PORT_UART_DMA_STREAM LL_DMA_STREAM_0
 
-static char rs485_recv_buf[1][1024];
-static QueueHandle_t rs485_queues[1] = {NULL};
+static char ble_recv_buf[1][1024];
+static QueueHandle_t ble_queues[1] = {NULL};
 
-static void rs485_rx_enable();
+int ble_set_at_cmd_mode(void);
 
-static void rs485_uart5_dma_init(void)
+static void ble_uart5_dma_init(void)
 {
   /* Init with LL driver */
   /* DMA controller clock enable */
@@ -37,7 +38,7 @@ static void rs485_uart5_dma_init(void)
 
 }
 
-static void rs485_uart5_init(void)
+static void ble_uart5_init(void)
 {
  
   /* USER CODE BEGIN UART5_Init 0 */
@@ -101,7 +102,7 @@ static void rs485_uart5_init(void)
   /* USER CODE BEGIN UART5_Init 1 */
 
   /* USER CODE END UART5_Init 1 */
-  USART_InitStruct.BaudRate = 115200;
+  USART_InitStruct.BaudRate = 9600;
   USART_InitStruct.DataWidth = LL_USART_DATAWIDTH_8B;
   USART_InitStruct.StopBits = LL_USART_STOPBITS_1;
   USART_InitStruct.Parity = LL_USART_PARITY_NONE;
@@ -115,12 +116,12 @@ static void rs485_uart5_init(void)
   /* USER CODE END UART5_Init 2 */
 }
 
-int rs485_uart5_comm_start(void) {
+int ble_uart5_comm_start(void) {
   LL_DMA_SetPeriphAddress(DMA1, LL_DMA_STREAM_0, (uint32_t)&UART5->DR);
   LL_DMA_SetMemoryAddress(DMA1, LL_DMA_STREAM_0,
-                          (uint32_t)&rs485_recv_buf[0]);
+                          (uint32_t)&ble_recv_buf[0]);
   LL_DMA_SetDataLength(DMA1, LL_DMA_STREAM_0,
-                       sizeof(rs485_recv_buf[0]));
+                       sizeof(ble_recv_buf[0]));
   LL_DMA_EnableIT_TE(DMA1, LL_DMA_STREAM_0);
   LL_DMA_EnableIT_FE(DMA1, LL_DMA_STREAM_0);
   LL_DMA_EnableIT_DME(DMA1, LL_DMA_STREAM_0);
@@ -136,15 +137,15 @@ int rs485_uart5_comm_start(void) {
   return 0;
 }
 
-int rs485_uart5_hw_init(void) {
-  rs485_uart5_dma_init();
-  rs485_uart5_init();
-  rs485_rx_enable();
+int ble_uart5_hw_init(void) {
+  ble_uart5_dma_init();
+  ble_uart5_init();
+  ble_set_at_cmd_mode();
 
   return 0;
 }
 
-int rs485_uart5_send(const char *data, size_t len) {
+int ble_uart5_send(const char *data, size_t len) {
   for (int i = 0; i < len; i++) {
     while (!LL_USART_IsActiveFlag_TXE(UART5))
       ;
@@ -157,31 +158,28 @@ int rs485_uart5_send(const char *data, size_t len) {
   return 0;
 }
 
-void rs485_tx_enable()
+int ble_set_at_cmd_mode(void)
 {
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_10, GPIO_PIN_SET); // DE
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_11, GPIO_PIN_SET); // /RE
+	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_10, GPIO_PIN_SET);
 }
 
-void rs485_rx_enable()
+int ble_set_bypass_mode(void)
 {
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_10, GPIO_PIN_RESET); // DE
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_11, GPIO_PIN_RESET); // /RE
+	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_10, GPIO_PIN_RESET);
 }
 
-static const rs485_hal_ops_t rs485_uart5_ops = {
-    .init = rs485_uart5_hw_init,
+static const ble_hal_ops_t ble_uart5_ops = {
+    .init = ble_uart5_hw_init,
     .reset = NULL,
-    .start = rs485_uart5_comm_start,
+    .start = ble_uart5_comm_start,
     .stop = NULL,
-    .send = rs485_uart5_send,
+    .send = ble_uart5_send,
     .recv = NULL,
-    .tx_enable = rs485_tx_enable,
-    .rx_enable = rs485_rx_enable,
+	.at_mode = ble_set_at_cmd_mode,
+	.bypass_mode = ble_set_bypass_mode,
 };
 
-
-#if defined(BOARD_TYPE_ROVER_UNICORE) || defined(BOARD_TYPE_ROVER_UBLOX)
+#if defined(BOARD_TYPE_BASE_UNICORE) || defined(BOARD_TYPE_BASE_UBLOX)
 /**
  * @brief This function handles USART3 global interrupt.
  */
@@ -190,9 +188,9 @@ void USART5_IRQHandler(void) {
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
   if (LL_USART_IsActiveFlag_IDLE(UART5)) {
-    if (rs485_queues[0] != NULL) {
+    if (ble_queues[0] != NULL) {
       uint8_t dummy = 0;
-      xQueueSendFromISR(rs485_queues[0], &dummy, &xHigherPriorityTaskWoken);
+      xQueueSendFromISR(ble_queues[0], &dummy, &xHigherPriorityTaskWoken);
     }
     LL_USART_ClearFlag_IDLE(UART5);
   }
@@ -223,60 +221,82 @@ void DMA1_Stream0_IRQHandler(void)
 
 }
 
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    if(GPIO_Pin == GPIO_PIN_11)
+    {
+        uint32_t read = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_11);
+        if(read == GPIO_PIN_RESET)
+        {
+            // DISCONNECT
+        }
+        else
+        {
+            // CONNECT
+        }
+    }
+}
+
+
+void EXTI15_10_IRQHandler(void)
+{
+     HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_11);
+}
+
 #endif
 
-int rs485_port_init_instance(rs485_t *rs485_handle) {
+int ble_port_init_instance(ble_t *ble_handle) {
   const board_config_t *config = board_get_config();
 
-  LOG_INFO("RS485 Port 초기화 시작 (보드: %d)", config->board);
+  LOG_INFO("BLE Port 초기화 시작 (보드: %d)", config->board);
 
-    if(config->use_rs485 == true)
+    if(config->use_ble == true)
     {
-        rs485_handle->ops = &rs485_uart5_ops;
-        if (rs485_handle->ops->init) {
-            rs485_handle->ops->init();
+        ble_handle->ops = &ble_uart5_ops;
+        if (ble_handle->ops->init) {
+            ble_handle->ops->init();
         }
     }
     else
     {
-        LOG_ERR("RS485 포트 초기화 실패: 잘못된 RS485 모드");
+        LOG_ERR("BLE 포트 초기화 실패: 잘못된 BLE 모드");
         return -1;
     }
 
-    LOG_INFO("RS485 초기화 완료");
+    LOG_INFO("BLE 초기화 완료");
 
     return 0;
 }
 
 
-void rs485_port_start(rs485_t *rs485_handle) {
-  if (!rs485_handle || !rs485_handle->ops || !rs485_handle->ops->start) {
-    LOG_ERR("RS485 start failed: invalid handle or ops");
+void ble_port_start(ble_t *ble_handle) {
+  if (!ble_handle || !ble_handle->ops || !ble_handle->ops->start) {
+    LOG_ERR("BLE start failed: invalid handle or ops");
     return;
   }
 
-  rs485_handle->ops->start();
+  ble_handle->ops->start();
 }
 
-void rs485_port_stop(rs485_t *rs485_handle) {
-  if (!rs485_handle || !rs485_handle->ops || !rs485_handle->ops->stop) {
-    LOG_ERR("RS485 stop failed: invalid handle or ops");
+void ble_port_stop(ble_t *ble_handle) {
+  if (!ble_handle || !ble_handle->ops || !ble_handle->ops->stop) {
+    LOG_ERR("BLE start failed: invalid handle or ops");
     return;
   }
 
-  rs485_handle->ops->stop();
+  ble_handle->ops->stop();
 }
 
-uint32_t rs485_port_get_rx_pos() {
-  uint32_t pos = sizeof(rs485_recv_buf[0]) - LL_DMA_GetDataLength(RS485_PORT_UART_DMA, RS485_PORT_UART_DMA_STREAM);
+uint32_t ble_port_get_rx_pos() {
+  uint32_t pos = sizeof(ble_recv_buf[0]) - LL_DMA_GetDataLength(BLE_PORT_UART_DMA, BLE_PORT_UART_DMA_STREAM);
   return pos;
 }
 
-char *rs485_port_get_recv_buf() 
+char *ble_port_get_recv_buf() 
 {
-  return rs485_recv_buf[0];
+  return ble_recv_buf[0];
 }
 
-void rs485_port_set_queue(QueueHandle_t queue) {
-    rs485_queues[0] = queue;
+void ble_port_set_queue(QueueHandle_t queue) {
+    ble_queues[0] = queue;
 }

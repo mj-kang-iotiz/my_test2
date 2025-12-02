@@ -32,6 +32,7 @@
 #include "gsm_app.h"
 #include "lora_app.h"
 #include "rs485_app.h"
+#include "ble_app.h"
 #include "led.h"
 #include "rtcm.h"
 #include "flash_params.h"
@@ -110,12 +111,17 @@ void initThread(void *pvParameter) {
   led_set_color(3, LED_COLOR_RED);
   led_set_state(3, true);
   gps_init_all();
-//  gsm_task_create(NULL);
-//  lora_instance_init();
+  gsm_task_create(NULL);
+  lora_instance_init();
 
   if(config->use_rs485)
   {
 	  rs485_init_all();
+  }
+
+  if(config->use_ble)
+  {
+	  ble_init_all();
   }
 
   vTaskDelete(NULL);

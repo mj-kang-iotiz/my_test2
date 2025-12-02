@@ -3,6 +3,7 @@
 #include "gps.h"
 #include "gps_port.h"
 #include "gps_unicore.h"
+#include "ubx_init.h"
 #include "ntrip_app.h"
 #include "rtcm.h"
 #include "led.h"
@@ -555,6 +556,14 @@ static void gps_tx_task(void *pvParameter) {
   vTaskDelete(NULL);
 }
 
+void callback_function(bool success, void *user_data) {
+    if (success) {
+       LOG_INFO(" 팩토리 리셋 성공");
+    } else {
+      LOG_ERR("팩토리 리셋 실패");
+    }
+}
+
 /**
  * @brief GPS 태스크
  *
@@ -585,6 +594,9 @@ static void gps_process_task(void *pvParameter) {
   }
 
   vTaskDelay(pdMS_TO_TICKS(2000));
+
+  gps_factory_reset_async(id, callback_function, NULL);
+
 #if defined(BOARD_TYPE_BASE_UNICORE)
   gps_init_um982_base_async(id, overall_init_complete);
 #elif defined(BOARD_TYPE_ROVER_UNICORE)
@@ -948,4 +960,39 @@ bool gps_send_raw_data(gps_id_t id, const uint8_t *data, size_t len) {
     LOG_ERR("GPS[%d] failed to acquire mutex", id);
     return false;
   }
+}
+
+
+bool gps_factory_reset_async(gps_id_t id, gps_init_callback_t callback, void *user_data)
+
+{
+
+  if (id >= GPS_ID_MAX || !gps_instances[id].enabled) {
+
+    LOG_ERR("GPS[%d] invalid or disabled", id);
+
+    return false;
+
+  }
+
+  gps_instance_t *inst = &gps_instances[id];
+
+  if (inst->type != GPS_TYPE_F9P) {
+    return false;
+  }
+
+  LOG_INFO("GPS[%d] Starting F9P factory reset...", id);
+
+  if (!ubx_factory_reset(&inst->gps, callback, user_data)) {
+
+    LOG_ERR("GPS[%d] Failed to start factory reset", id);
+
+    return false;
+
+  }
+
+ 
+
+  return true;
+
 }
