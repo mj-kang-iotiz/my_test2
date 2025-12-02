@@ -691,14 +691,14 @@ bool gps_port_detect_baudrate(gps_id_t id, uint32_t *detected_baudrate)
     // Baud rate 변경
     gps_port_set_baudrate(id, test_baud);
 
-    // 안정화 대기 (50ms)
-    HAL_Delay(50);
+    // 안정화 대기 (50ms) - FreeRTOS 태스크에서는 vTaskDelay 사용
+    vTaskDelay(pdMS_TO_TICKS(50));
 
     // 수신 버퍼 초기화
     uint32_t start_pos = gps_port_get_rx_pos(id);
 
-    // 500ms 동안 데이터 수신 대기
-    HAL_Delay(500);
+    // 500ms 동안 데이터 수신 대기 - FreeRTOS 태스크에서는 vTaskDelay 사용
+    vTaskDelay(pdMS_TO_TICKS(500));
 
     uint32_t end_pos = gps_port_get_rx_pos(id);
 
