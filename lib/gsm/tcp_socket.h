@@ -8,14 +8,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/**
- * @brief 고수준 TCP 소켓 래퍼
- *
- * 목적:
- * - 애플리케이션 태스크에서 쉽게 TCP 통신
- * - 콜백 없이 동기식 send/recv 제공
- * - 내부적으로 큐/세마포어로 동기화
- */
 
 typedef struct tcp_socket_s tcp_socket_t;
 

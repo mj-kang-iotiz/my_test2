@@ -15,7 +15,7 @@
 
 #include "log.h"
 
-#define LORA_CMD_QUEUE_SIZE 20  // Increased for multiple RTCM types with fragmentation
+#define LORA_CMD_QUEUE_SIZE 15  // Increased for multiple RTCM types with fragmentation
 #define LORA_AT_CMD_TIMEOUT_MS 2000
 #define LORA_INIT_MAX_RETRY 3
 #define LORA_INIT_TIMEOUT_MS 2000 // work_mode AT command timeout
@@ -723,7 +723,8 @@ static void lora_process_task(void *pvParameter)
   size_t pos = 0;
   size_t old_pos = 0;
   uint8_t dummy = 0;
-  static char temp_buf[1024];
+
+  __attribute__((section(".ccmram"))) static char temp_buf[1024];
   LOG_INFO("LoRa RX Task started");
 
   // RX Task 준비 완료 플래그 설정

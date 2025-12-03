@@ -16,16 +16,17 @@ typedef struct {
   int16_t rssi;           // 수신 신호 강도 (dBm)
   int16_t snr;            // Signal-to-Noise Ratio (dB)
   uint16_t data_len;      // 데이터 길이
-  char data[512];         // 수신 데이터 (최대 500 bytes)
+  char data[256];
 } lora_p2p_recv_data_t;
 
 /**
  * @brief RTCM fragment 재조립 버퍼
  */
-#define RTCM_REASSEMBLY_BUF_SIZE 1024
+#define RTCM_REASSEMBLY_BUF_SIZE 512
 #define RTCM_REASSEMBLY_TIMEOUT_MS 5000  // 5초 타임아웃
 
 typedef struct {
+  
   uint8_t buffer[RTCM_REASSEMBLY_BUF_SIZE];  // 재조립 버퍼
   uint16_t buffer_pos;                        // 현재 버퍼 위치
   uint16_t expected_len;                      // 예상 RTCM 패킷 전체 길이

@@ -185,13 +185,13 @@ void _add_hp_avg_data(gps_instance_t *inst) {
   }
 }
 
-#define GPS_INIT_MAX_RETRY 3  // 최대 재시도 횟수
-#define GPS_INIT_TIMEOUT_MS 1000  // 명령어 타임아웃 (1초)
+#define GPS_INIT_MAX_RETRY 3
+#define GPS_INIT_TIMEOUT_MS 1000
 
 #define UM982_BASE_CMD_COUNT (sizeof(um982_base_cmds) / sizeof(um982_base_cmds[0]))
 
 static const char *um982_base_cmds[] = {
-	"CONFIG ANTENNA POWERON\r\n",
+	// "CONFIG ANTENNA POWERON\r\n",
   "unmask BDS\r\n",
   "unmask GPS\r\n",
   "unmask GLO\r\n",
@@ -204,7 +204,7 @@ static const char *um982_base_cmds[] = {
   "rtcm1084 com1 2\r\n",
   "rtcm1094 com1 2\r\n",
   "gpgga com1 1\r\n",
-  "gpgsv com1 1\r\n",
+  // "gpgsv com1 1\r\n",
   "BESTNAVB 1\r\n",
 };
 
@@ -214,12 +214,14 @@ static const char *um982_rover_cmds[] = {
   "unmask GPS\r\n",
   "unmask GLO\r\n",
   "unmask GAL\r\n",
-  "MODE ROVER\r\n",
   "gpgga com1 1\r\n",
-  "gpgsv com1 1\r\n",
+  // "gpgsv com1 1\r\n",
   "gpths com1 1\r\n",
+  "OBSVHA COM1 1\r\n", // slave antenna
   "BESTNAVB 1\r\n",
-  // UNIHEADINGB
+  "CONFIG HEADING FIXLENGTH\r\n"
+  "config heading length 50 30\r\n",
+  "UNIHEADINGA 1\r\n",
 };
 
 #define UM982_ROVER_CMD_COUNT (sizeof(um982_rover_cmds) / sizeof(um982_rover_cmds[0]))
@@ -227,19 +229,18 @@ static const char *um982_rover_cmds[] = {
 typedef void (*gps_init_callback_t)(bool success, void *user_data);
 
 typedef struct {
-  gps_id_t gps_id;              // GPS ID
-  uint8_t current_step;         // 현재 단계 (0 ~ cmd_count-1)
-  uint8_t retry_count;          // 현재 단계 재시도 횟수
-  const char **cmd_list;        // 명령어 리스트
-  uint8_t cmd_count;            // 명령어 개수
-  gps_init_callback_t callback; // 완료 콜백
+  gps_id_t gps_id;
+  uint8_t current_step;
+  uint8_t retry_count;
+  const char **cmd_list;
+  uint8_t cmd_count;
+  gps_init_callback_t callback;
 } gps_init_context_t;
 
 #if defined(BOARD_TYPE_BASE_UNICORE) || defined(BOARD_TYPE_ROVER_UNICORE)
 static void overall_init_complete(bool success, void *user_data) {
   gps_id_t id = (gps_id_t)(uintptr_t)user_data;
   LOG_INFO("GPS[%d] Overall init %s", id, success ? "succeeded" : "failed");
-  // 여기에 init_state 설정이나 다른 시스템 알림 추가 가능
 }
 #endif
 
@@ -252,46 +253,43 @@ static void gps_init_command_callback(bool success, void *user_data) {
   }
 
   if (success) {
-    // 명령어 성공
     LOG_INFO("GPS[%d] Init step %d/%d OK: %s",
              ctx->gps_id, ctx->current_step + 1, ctx->cmd_count,
              ctx->cmd_list[ctx->current_step]);
 
-    // 다음 단계로
     ctx->current_step++;
     ctx->retry_count = 0;
 
-    // 모든 단계 완료?
     if (ctx->current_step >= ctx->cmd_count) {
       LOG_INFO("GPS[%d] Init sequence complete!", ctx->gps_id);
       if (ctx->callback) {
         ctx->callback(true, NULL);
       }
-      // 컨텍스트 메모리 해제
+
       vPortFree(ctx);
       return;
     }
 
-    // 다음 명령어 전송
+
     gps_send_command_async(ctx->gps_id, ctx->cmd_list[ctx->current_step],
                            GPS_INIT_TIMEOUT_MS, gps_init_command_callback, ctx);
   } else {
-    // 명령어 실패
+
     ctx->retry_count++;
 
     if (ctx->retry_count < GPS_INIT_MAX_RETRY) {
-      // 재시도
+
       LOG_WARN("GPS[%d] Init step %d/%d failed, retrying (%d/%d): %s",
                ctx->gps_id, ctx->current_step + 1, ctx->cmd_count,
                ctx->retry_count, GPS_INIT_MAX_RETRY,
                ctx->cmd_list[ctx->current_step]);
 
-      // 같은 명령어 재전송
+      
       gps_send_command_async(ctx->gps_id, ctx->cmd_list[ctx->current_step],
                              GPS_INIT_TIMEOUT_MS, gps_init_command_callback, ctx);
     } else {
 
-      // 최대 재시도 초과
+      
       LOG_ERR("GPS[%d] Init failed at step %d/%d after %d retries: %s",
               ctx->gps_id, ctx->current_step + 1, ctx->cmd_count,
               GPS_INIT_MAX_RETRY, ctx->cmd_list[ctx->current_step]);
@@ -299,20 +297,15 @@ static void gps_init_command_callback(bool success, void *user_data) {
       if (ctx->callback) {
         ctx->callback(false, NULL);
       }
-      // 컨텍스트 메모리 해제
+      
       vPortFree(ctx);
     }
   }
 }
 
-
-
 /**
-
  * @brief GPS UM982 Base 모드 초기화 (비동기)
-
  */
-
 bool gps_init_um982_base_async(gps_id_t id, gps_init_callback_t callback) {
   if (id >= GPS_ID_MAX || !gps_instances[id].enabled) {
     LOG_ERR("GPS[%d] invalid or disabled", id);
@@ -334,7 +327,7 @@ bool gps_init_um982_base_async(gps_id_t id, gps_init_callback_t callback) {
   ctx->cmd_count = UM982_BASE_CMD_COUNT;
   ctx->callback = callback;
 
-  LOG_INFO("GPS[%d] Starting UM982 base init sequence (%d commands)",
+  LOG_DEBUG("GPS[%d] Starting UM982 base init sequence (%d commands)",
            id, ctx->cmd_count);
 
   // 첫 번째 명령어 전송
@@ -372,10 +365,9 @@ bool gps_init_um982_rover_async(gps_id_t id, gps_init_callback_t callback) {
   ctx->cmd_count = UM982_ROVER_CMD_COUNT;
   ctx->callback = callback;
 
-  LOG_INFO("GPS[%d] Starting UM982 rover init sequence (%d commands)",
+  LOG_DEBUG("GPS[%d] Starting UM982 rover init sequence (%d commands)",
            id, ctx->cmd_count);
 
-  // 첫 번째 명령어 전송
   if (!gps_send_command_async(id, ctx->cmd_list[0], GPS_INIT_TIMEOUT_MS,
                                gps_init_command_callback, ctx)) {
     LOG_ERR("GPS[%d] failed to start init sequence", id);
@@ -481,7 +473,7 @@ static void gps_tx_task(void *pvParameter) {
   gps_instance_t *inst = &gps_instances[id];
   gps_cmd_request_t cmd_req;
 
-  LOG_INFO("GPS TX Task[%d] started", id);
+  LOG_INFO("GPS TX 태스크[%d] 시작", id);
 
   while (1) {
     if (xQueueReceive(inst->cmd_queue, &cmd_req, portMAX_DELAY) == pdTRUE) {
@@ -528,7 +520,6 @@ static void gps_tx_task(void *pvParameter) {
                    *(cmd_req.result) ? "OK" : "ERROR");
         }
       } else {
-        // 타임아웃
         LOG_WARN("GPS[%d] Command timeout", id);
         if (cmd_req.is_async) {
           cmd_req.async_result = false;
@@ -565,14 +556,6 @@ void callback_function(bool success, void *user_data) {
     }
 }
 
-/**
- * @brief GPS 태스크
- *
- * @param pvParameter
- */
-
-char my_test[100];
-uint8_t my_len = 0;
 
 static void gps_process_task(void *pvParameter) {
   gps_id_t id = (gps_id_t)(uintptr_t)pvParameter;
@@ -631,7 +614,7 @@ static void gps_process_task(void *pvParameter) {
     }
 
     xQueueReceive(inst->queue, &dummy,
-                  portMAX_DELAY); // 단순 신호 전달용. 받는 데이터 없음
+                  portMAX_DELAY);
 
     if (inst->gps.nmea_data.gga.fix == GPS_FIX_INVALID) {
       if (use_led) {
@@ -686,10 +669,6 @@ static void gps_process_task(void *pvParameter) {
       }
     }
     xSemaphoreGive(inst->gps.mutex);
-
-//    if (get_gga(&inst->gps, my_test, &my_len)) {
-//      LOG_ERR("[ID:%d]%s", id, my_test);
-//    }
   }
 
   vTaskDelete(NULL);
@@ -698,44 +677,33 @@ static void gps_process_task(void *pvParameter) {
 void gps_init_all(void) {
   const board_config_t *config = board_get_config();
 
-  LOG_INFO("GPS 초기화 시작 - 보드: %d, GPS 개수: %d", config->board,
-           config->gps_cnt);
-
   for (uint8_t i = 0; i < config->gps_cnt && i < GPS_ID_MAX; i++) {
     gps_type_t type = config->gps[i];
 
-    LOG_INFO("GPS[%d] 초기화 - 타입: %s", i,
+    LOG_DEBUG("GPS[%d] 초기화 - 타입: %s", i,
              type == GPS_TYPE_F9P     ? "F9P"
              : type == GPS_TYPE_UM982 ? "UM982"
                                       : "UNKNOWN");
 
-    // GPS 핸들 초기화
     gps_init(&gps_instances[i].gps);
     gps_instances[i].type = type;
     gps_instances[i].id = (gps_id_t)i;
     gps_instances[i].enabled = true;
 
-    // GPS 타입별 초기 상태 설정
     if (type == GPS_TYPE_UM982) {
-      // Unicore UM982: RDY 대기
       gps_instances[i].gps.init_state = GPS_INIT_NONE;
-      LOG_INFO("GPS[%d] UM982 will wait for RDY signal", i);
     } else if (type == GPS_TYPE_F9P) {
-      // Ublox F9P: task에서 부팅 delay 후 완료
-      gps_instances[i].gps.init_state = GPS_INIT_NONE; // 임시
-      LOG_INFO("GPS[%d] F9P will boot and init", i);
+      gps_instances[i].gps.init_state = GPS_INIT_NONE;
     } else {
       gps_instances[i].gps.init_state = GPS_INIT_NONE;
     }
 
-    // 포트 초기화 (UART 설정 및 HAL ops 자동 할당)
     if (gps_port_init_instance(&gps_instances[i].gps, (gps_id_t)i, type) != 0) {
       LOG_ERR("GPS[%d] 포트 초기화 실패", i);
       gps_instances[i].enabled = false;
       continue;
     }
 
-    // 큐 생성 및 설정
     gps_instances[i].queue = xQueueCreate(10, sizeof(uint8_t));
     if (gps_instances[i].queue == NULL) {
       LOG_ERR("GPS[%d] 큐 생성 실패", i);
@@ -752,16 +720,14 @@ void gps_init_all(void) {
       continue;
     }
 
-    // UART 시작
     gps_port_start(&gps_instances[i].gps);
 
-    // 태스크 생성
     char task_name[16];
     snprintf(task_name, sizeof(task_name), "gps_rx_%d", i);
 
     BaseType_t ret =
         xTaskCreate(gps_process_task, task_name, 1024,
-                    (void *)(uintptr_t)i, // GPS ID를 파라미터로 전달
+                    (void *)(uintptr_t)i, // GPS ID
                     tskIDLE_PRIORITY + 1, &gps_instances[i].task);
 
     if (ret != pdPASS) {
@@ -781,10 +747,11 @@ void gps_init_all(void) {
       continue;
     }
 
-    LOG_INFO("GPS[%d] 초기화 완료", i);
+    LOG_INFO("GPS[%d] 인스턴스 초기화 완료", i);
+
   }
 
-  LOG_INFO("GPS 전체 초기화 완료");
+  LOG_INFO("GPS 전체 인스턴스 초기화 완료");
 }
 
 /**
@@ -831,7 +798,6 @@ bool gps_get_gga_avg(gps_id_t id, double *lat, double *lon, double *alt) {
   return true;
 }
 
-
 bool gps_send_command_sync(gps_id_t id, const char *cmd, uint32_t timeout_ms) {
   if (id >= GPS_ID_MAX || !gps_instances[id].enabled) {
     LOG_ERR("GPS[%d] invalid or disabled", id);
@@ -866,22 +832,18 @@ bool gps_send_command_sync(gps_id_t id, const char *cmd, uint32_t timeout_ms) {
   strncpy(cmd_req.cmd, cmd, sizeof(cmd_req.cmd) - 1);
   cmd_req.cmd[sizeof(cmd_req.cmd) - 1] = '\0';
 
-  // TX 태스크로 명령어 전송 요청
   if (xQueueSend(inst->cmd_queue, &cmd_req, pdMS_TO_TICKS(1000)) != pdTRUE) {
     LOG_ERR("GPS[%d] failed to send command to TX task", id);
     vSemaphoreDelete(response_sem);
     return false;
   }
 
-  // TX 태스크에서 처리 완료 대기
-  // TX 태스크가 응답을 받거나 타임아웃되면 세마포어를 줌
   if (xSemaphoreTake(response_sem, pdMS_TO_TICKS(timeout_ms + 1000)) == pdTRUE) {
     // 처리 완료
     vSemaphoreDelete(response_sem);
     return result;
   } else {
-    // 외부 타임아웃 (TX 태스크 응답 없음)
-    LOG_ERR("GPS[%d] TX task did not respond", id);
+    LOG_ERR("GPS[%d] 전송 태스크 응답 없음", id);
     vSemaphoreDelete(response_sem);
     return false;
   }
@@ -890,12 +852,12 @@ bool gps_send_command_sync(gps_id_t id, const char *cmd, uint32_t timeout_ms) {
 bool gps_send_command_async(gps_id_t id, const char *cmd, uint32_t timeout_ms,
                              gps_command_callback_t callback, void *user_data) {
   if (id >= GPS_ID_MAX || !gps_instances[id].enabled) {
-    LOG_ERR("GPS[%d] invalid or disabled", id);
+    LOG_ERR("GPS[%d] invalid", id);
     return false;
   }
 
   if (!cmd || strlen(cmd) == 0) {
-    LOG_ERR("GPS[%d] empty command", id);
+    LOG_ERR("GPS[%d] 잘못된 명령", id);
     return false;
   }
 
@@ -904,7 +866,7 @@ bool gps_send_command_async(gps_id_t id, const char *cmd, uint32_t timeout_ms,
   // 세마포어 생성 (TX Task 내부에서 응답 대기용)
   SemaphoreHandle_t response_sem = xSemaphoreCreateBinary();
   if (response_sem == NULL) {
-    LOG_ERR("GPS[%d] failed to create semaphore", id);
+    LOG_ERR("GPS[%d] 세마포어 생성 실패", id);
     return false;
   }
 
@@ -922,22 +884,19 @@ bool gps_send_command_async(gps_id_t id, const char *cmd, uint32_t timeout_ms,
   strncpy(cmd_req.cmd, cmd, sizeof(cmd_req.cmd) - 1);
   cmd_req.cmd[sizeof(cmd_req.cmd) - 1] = '\0';
 
-  // TX 태스크로 명령어 전송 요청
   if (xQueueSend(inst->cmd_queue, &cmd_req, pdMS_TO_TICKS(1000)) != pdTRUE) {
-    LOG_ERR("GPS[%d] failed to send command to TX task", id);
+    LOG_ERR("GPS[%d] 메시지큐 전송 실패", id);
     vSemaphoreDelete(response_sem);
     return false;
   }
 
-  // 즉시 반환 (non-blocking)
-  // TX Task가 처리를 완료하면 콜백 호출
-  LOG_INFO("GPS[%d] Async command queued", id);
+  LOG_DEBUG("GPS[%d] 비동기 명령 메시지큐 전송", id);
   return true;
 }
 
 bool gps_send_raw_data(gps_id_t id, const uint8_t *data, size_t len) {
   if (id >= GPS_ID_MAX || !gps_instances[id].enabled) {
-    LOG_ERR("GPS[%d] invalid or disabled", id);
+    LOG_ERR("GPS[%d] invalid", id);
     return false;
   }
 
@@ -949,30 +908,27 @@ bool gps_send_raw_data(gps_id_t id, const uint8_t *data, size_t len) {
   gps_instance_t *inst = &gps_instances[id];
 
   if (!inst->gps.ops || !inst->gps.ops->send) {
-    LOG_ERR("GPS[%d] send ops not available", id);
+    LOG_ERR("GPS[%d] ops invalid", id);
     return false;
   }
 
-  // 뮤텍스로 UART 전송 보호
   if (xSemaphoreTake(inst->gps.mutex, pdMS_TO_TICKS(2000)) == pdTRUE) {
     inst->gps.ops->send((const char *)data, len);
     xSemaphoreGive(inst->gps.mutex);
-    LOG_DEBUG("GPS[%d] sent %d bytes raw data", id, len);
+    LOG_DEBUG("GPS[%d] 송신 %d 바이트", id, len);
     return true;
   } else {
-    LOG_ERR("GPS[%d] failed to acquire mutex", id);
+    LOG_ERR("GPS[%d] 뮤텍스 타임아웃", id);
     return false;
   }
 }
 
 
 bool gps_factory_reset_async(gps_id_t id, gps_init_callback_t callback, void *user_data)
-
 {
-
   if (id >= GPS_ID_MAX || !gps_instances[id].enabled) {
 
-    LOG_ERR("GPS[%d] invalid or disabled", id);
+    LOG_ERR("GPS[%d] invalid", id);
 
     return false;
 
@@ -984,11 +940,9 @@ bool gps_factory_reset_async(gps_id_t id, gps_init_callback_t callback, void *us
     return false;
   }
 
-  LOG_INFO("GPS[%d] Starting F9P factory reset...", id);
-
   if (!ubx_factory_reset(&inst->gps, callback, user_data)) {
 
-    LOG_ERR("GPS[%d] Failed to start factory reset", id);
+    LOG_ERR("GPS[%d] 팩토리 리셋 실패", id);
 
     return false;
 

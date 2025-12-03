@@ -198,7 +198,7 @@ int main(void) {
 //  MX_USART6_UART_Init();
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
-  xTaskCreate(initThread, "init", 2048, NULL, tskIDLE_PRIORITY + 1, NULL);
+  xTaskCreate(initThread, "init", 512, NULL, tskIDLE_PRIORITY + 1, NULL);
 
   vTaskStartScheduler();
   /* USER CODE END 2 */

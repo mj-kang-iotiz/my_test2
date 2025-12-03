@@ -18,7 +18,6 @@ void handle_urc_rdy(gsm_t *gsm, const char *data, size_t len)
 {
   gsm->status.is_powerd = 1;
 
-  // 이벤트 핸들러 호출
   if (gsm->evt_handler.handler)
   {
     gsm->evt_handler.handler(GSM_EVT_RDY, gsm->evt_handler.args);
@@ -29,7 +28,6 @@ void handle_urc_powered_down(gsm_t *gsm, const char *data, size_t len)
 {
   gsm->status.is_powerd = 0;
 
-  // 이벤트 핸들러 호출
   if (gsm->evt_handler.handler)
   {
     gsm->evt_handler.handler(GSM_EVT_POWERED_DOWN, gsm->evt_handler.args);
@@ -38,7 +36,7 @@ void handle_urc_powered_down(gsm_t *gsm, const char *data, size_t len)
 
 void handle_urc_cmee(gsm_t *gsm, const char *data, size_t len)
 {
-  // TODO: +CMEE 에러 코드 파싱
+
 }
 
 void handle_urc_cgdcont(gsm_t *gsm, const char *data, size_t len)
@@ -56,18 +54,16 @@ void handle_urc_cgdcont(gsm_t *gsm, const char *data, size_t len)
   }
   else
   {
-    // URC → 로컬 변수에 저장
     target = &local_msg;
     mode = GSM_AT_READ;
     is_urc = true;
   }
 
-  // 파싱 (AT 응답/URC 공통)
   if (mode == GSM_AT_READ) {
     // +CGDCONT: 1,"IP","internet"
     const char *p = data;
     size_t idx = target->cgdcont.count;
-    if (idx < 5) // 최대 5개
+    if (idx < 5)
     {
       gsm_pdp_context_t *ctx = &target->cgdcont.contexts[idx];
       ctx->cid = parse_uint32(&p);
@@ -77,9 +73,8 @@ void handle_urc_cgdcont(gsm_t *gsm, const char *data, size_t len)
     }
   }
 
-  // URC 전용 처리
   if (is_urc && target->cgdcont.count > 0) {
-    // TODO: APN 변경 이벤트 발생
+
   }
 }
 
@@ -99,18 +94,14 @@ void handle_urc_cpin(gsm_t *gsm, const char *data, size_t len) {
     is_urc = true;
   }
 
-  // 파싱 (AT 응답/URC 공통)
   if (mode == GSM_AT_READ) {
     // +CPIN: READY
     const char *p = data;
     parse_string(&p, target->cpin.code, sizeof(target->cpin.code));
   }
 
-  // URC 전용 처리
   if (is_urc) {
-    // TODO: SIM 상태 변경 처리
-    // 예: if(!strcmp(target->cpin.code, "READY")) { gsm->status.is_sim_rdy = 1;
-    // }
+
   }
 }
 
@@ -130,9 +121,7 @@ void handle_urc_cops(gsm_t *gsm, const char *data, size_t len) {
     is_urc = true;
   }
 
-  // 파싱 (AT 응답/URC 공통)
   if (mode == GSM_AT_READ) {
-    // +COPS: 0,0,"SKT",7
     const char *p = data;
     target->cops.mode = parse_uint32(&p);
     target->cops.format = parse_uint32(&p);
@@ -140,9 +129,8 @@ void handle_urc_cops(gsm_t *gsm, const char *data, size_t len) {
     target->cops.act = parse_uint32(&p);
   }
 
-  // URC 전용 처리
   if (is_urc && target->cops.oper[0]) {
-    // TODO: 네트워크 변경 이벤트
+
   }
 }
 
@@ -223,8 +211,6 @@ void handle_urc_qiclose(gsm_t *gsm, const char *data, size_t len) {
 
       // 연결 종료 콜백 저장
       tcp_close_callback_t on_close = socket->on_close;
-
-      // ★ close_sem Give (gsm_tcp_close 동기 대기 해제)
       SemaphoreHandle_t close_sem = socket->close_sem;
 
       socket->state = GSM_TCP_STATE_CLOSED;
@@ -233,12 +219,10 @@ void handle_urc_qiclose(gsm_t *gsm, const char *data, size_t len) {
 
       xSemaphoreGive(gsm->tcp.tcp_mutex);
 
-      // ★ 뮤텍스 밖에서 세마포어 Give
       if (close_sem) {
         xSemaphoreGive(close_sem);
       }
 
-      // 뮤텍스 밖에서 콜백 호출
       if (on_close) {
         on_close(cid);
       }
@@ -287,30 +271,23 @@ void handle_urc_qisend(gsm_t *gsm, const char *data, size_t len) {
  */
 void handle_urc_qird(gsm_t *gsm, const char *data, size_t len) {
   gsm_msg_t *target;
-  bool is_urc;
   gsm_msg_t local_msg = {0};
   uint8_t connect_id = 0;
 
   if (gsm->current_cmd && gsm->current_cmd->cmd == GSM_CMD_QIRD) {
     target = &gsm->current_cmd->msg;
-    is_urc = false;
 
     // params에서 connect_id 추출: "0,1460" → connect_id=0
     const char *param_p = gsm->current_cmd->params;
     connect_id = parse_uint32(&param_p);
   } else {
     target = &local_msg;
-    is_urc = true;
   }
 
   // 파싱: <read_actual_length>
   const char *p = data;
   target->qird.read_actual_length = parse_uint32(&p);
   target->qird.connect_id = connect_id;
-
-  // ★ TCP 버퍼 읽기 모드 활성화 (플래그 먼저 설정 - 바이너리 데이터 손실 방지)
-
-  // is_reading_data는 volatile이므로 mutex 없이 먼저 설정
 
   gsm->tcp.buffer.is_reading_data = true;
   gsm->tcp.buffer.expected_data_len = target->qird.read_actual_length;
@@ -357,7 +334,7 @@ void handle_urc_qistate(gsm_t *gsm, const char *data, size_t len) {
   parse_string_quoted(&p, target->qistate.at_port,
                       sizeof(target->qistate.at_port));
 
-  (void)is_urc; // 현재 URC 전용 처리 없음
+  (void)is_urc;
 }
 
 /**
@@ -370,12 +347,8 @@ void handle_urc_qiurc(gsm_t *gsm, const char *data, size_t len) {
   const char *p = data;
   char type[16] = {0};
 
-  LOG_DEBUG("+QIURC 핸들러 호출: data=\"%.*s\"", (int)len, data);
-
-  // 첫 번째 파라미터 파싱 (따옴표로 둘러싸인 문자열)
   parse_string_quoted(&p, type, sizeof(type));
 
-  // ★ 디버깅: 파싱 결과 확인
   if (strlen(type) == 0) {
     LOG_ERR("+QIURC 파싱 실패: type이 비어있음 (data=\"%.*s\")", (int)len,
             data);
@@ -383,26 +356,16 @@ void handle_urc_qiurc(gsm_t *gsm, const char *data, size_t len) {
     return;
   }
 
-  LOG_DEBUG("+QIURC type=\"%s\"", type);
-
   if (strcmp(type, "recv") == 0) {
-    // 데이터 수신 알림
     uint8_t connect_id = parse_uint32(&p);
 
-    LOG_DEBUG("+QIURC: \"recv\",%d - 이벤트 큐에 추가", connect_id);
-
     if (connect_id < GSM_TCP_MAX_SOCKETS) {
-      // ✅ 이벤트 큐에 넣고 TCP 태스크가 처리하도록
       tcp_event_t evt = {.type = TCP_EVT_RECV_NOTIFY, .connect_id = connect_id};
-
-      // 큐가 가득 찬 경우 10ms 대기 (이벤트 유실 방지)
       if (xQueueSend(gsm->tcp.event_queue, &evt, pdMS_TO_TICKS(10)) != pdTRUE) {
-        // 큐 오버플로우: 이벤트 유실 (TCP 태스크가 처리 못하는 상황)
         LOG_ERR("+QIURC: \"recv\" 이벤트 큐 오버플로우! (connect_id=%d)",
                 connect_id);
       } else {
-        LOG_DEBUG("+QIURC: \"recv\" 이벤트 큐 추가 성공 (connect_id=%d)",
-                  connect_id);
+
       }
 
       if (gsm->evt_handler.handler) {
@@ -413,30 +376,21 @@ void handle_urc_qiurc(gsm_t *gsm, const char *data, size_t len) {
               GSM_TCP_MAX_SOCKETS);
     }
   } else if (strcmp(type, "closed") == 0) {
-    // 연결 종료 알림
     uint8_t connect_id = parse_uint32(&p);
 
     LOG_DEBUG("+QIURC: \"closed\",%d - 이벤트 큐에 추가", connect_id);
 
     if (connect_id < GSM_TCP_MAX_SOCKETS) {
-      // ✅ 이벤트 큐에 넣고 TCP 태스크가 처리하도록
-
       tcp_event_t evt = {
-
           .type = TCP_EVT_CLOSED_NOTIFY,
-
           .connect_id = connect_id};
-
-      // 큐가 가득 찬 경우 10ms 대기 (이벤트 유실 방지)
 
       if (xQueueSend(gsm->tcp.event_queue, &evt, pdMS_TO_TICKS(10)) != pdTRUE) {
 
-        // 큐 오버플로우: 이벤트 유실 (TCP 태스크가 처리 못하는 상황)
         LOG_ERR("+QIURC: \"closed\" 이벤트 큐 오버플로우! (connect_id=%d)",
                 connect_id);
       } else {
-        LOG_DEBUG("+QIURC: \"closed\" 이벤트 큐 추가 성공 (connect_id=%d)",
-                  connect_id);
+
       }
 
       if (gsm->evt_handler.handler) {
@@ -447,7 +401,6 @@ void handle_urc_qiurc(gsm_t *gsm, const char *data, size_t len) {
               GSM_TCP_MAX_SOCKETS);
     }
   } else if (strcmp(type, "pdpdeact") == 0) {
-    // PDP context 비활성화 알림
     uint8_t context_id = parse_uint32(&p);
     LOG_WARN("+QIURC: \"pdpdeact\",%d - PDP context 비활성화", context_id);
 
@@ -534,9 +487,6 @@ static void handle_urc_status(gsm_t *gsm) {
 /**
  * @brief URC 및 AT 응답 처리
  *
- * ★ 개선: URC 핸들러가 AT 응답과 URC를 모두 처리
- * - URC 핸들러 내부에서 current_cmd를 확인하여 AT 응답/URC 구분
- * - switch-case 제거, 함수 하나로 통합
  */
 static void handle_urc_info(gsm_t *gsm) {
   const urc_handler_entry_t *entry = gsm->urc_info_tbl;
@@ -545,45 +495,26 @@ static void handle_urc_info(gsm_t *gsm) {
             gsm->recv.len);
 
   while (entry->prefix != NULL) {
-
     const char *resp = entry->prefix;
-
     size_t resp_len = strlen(entry->prefix);
 
     if (strncmp(gsm->recv.data, resp, resp_len) == 0)
-
     {
-
-      // ★ URC 핸들러 호출 (AT 응답/URC 모두 처리)
-
-      LOG_DEBUG("URC prefix 매칭: \"%s\" -> 핸들러 호출", resp);
-
       if (entry->handler)
-
       {
-
         const char *data_start = &gsm->recv.data[resp_len];
-
         size_t data_len =
             ((gsm->recv.len > resp_len) ? gsm->recv.len - resp_len : 0);
 
-        // ★ 중앙에서 뮤텍스 관리 (각 핸들러에서 중복 코드 제거)
 
         if (gsm->cmd_mutex &&
             xSemaphoreTake(gsm->cmd_mutex, portMAX_DELAY) == pdTRUE)
-
         {
-
           entry->handler(gsm, data_start, data_len);
-
           xSemaphoreGive(gsm->cmd_mutex);
-
         }
-
         else
-
         {
-
           LOG_ERR("URC 핸들러 뮤텍스 획득 실패!");
         }
       }
@@ -593,8 +524,6 @@ static void handle_urc_info(gsm_t *gsm) {
 
     entry++;
   }
-
-  // ★ 디버깅: 매칭되는 핸들러가 없음
 
   LOG_ERR("URC info 핸들러 매칭 실패: recv.data=\"%s\"", gsm->recv.data);
 }
@@ -608,45 +537,33 @@ void gsm_parse_response(gsm_t *gsm) {
 
     if (xSemaphoreTake(gsm->cmd_mutex, portMAX_DELAY) == pdTRUE) {
       if (gsm->current_cmd) {
-        // ★★★ 중요: 세마포어/콜백 순서 및 msg 백업 ★★★
-        // 1. current_cmd 내용 백업 (뮤텍스 해제 전)
         SemaphoreHandle_t caller_sem = gsm->current_cmd->sem;
         at_cmd_handler callback = gsm->current_cmd->callback;
-        gsm_cmd_t cmd_backup = gsm->current_cmd->cmd;    // ★ cmd도 백업
-        tcp_pbuf_t *tx_pbuf = gsm->current_cmd->tx_pbuf; // ★ pbuf 백업
+        gsm_cmd_t cmd_backup = gsm->current_cmd->cmd;
+        tcp_pbuf_t *tx_pbuf = gsm->current_cmd->tx_pbuf;
 
-        // ★ msg union 전체 백업! (at_cmd 스택 변수가 덮어써지기 전)
         gsm_msg_t msg_backup;
         memcpy(&msg_backup, &gsm->current_cmd->msg, sizeof(msg_backup));
 
-        // 2. current_cmd 먼저 NULL로 설정 (재진입 방지)
         gsm->current_cmd = NULL;
 
-        // 3. Producer Task 먼저 깨우기 (다음 명령 준비)
-        //    → Producer가 큐에서 다음 명령을 꺼낼 준비 완료
         if (gsm->producer_sem) {
           xSemaphoreGive(gsm->producer_sem);
         }
 
-        // 4. 뮤텍스 해제 (뮤텍스 보호 영역 최소화)
         xSemaphoreGive(gsm->cmd_mutex);
 
-        // 5. Caller 나중에 깨우기 (또는 콜백 실행)
-        //    → Caller가 새 명령을 보낼 때 Producer가 이미 준비된 상태
-        //    → 뮤텍스 밖에서 실행 (콜백이 오래 걸려도 OK)
         if (caller_sem) {
           xSemaphoreGive(caller_sem);
         } else if (callback) {
-          // ★ cmd와 msg 포인터 전달 (백업본)
           callback(gsm, cmd_backup, &msg_backup, true);
         }
 
-        // 6. ★ TX pbuf 해제 (QISEND 전송 완료)
         if (tx_pbuf) {
           tcp_pbuf_free(tx_pbuf);
         }
 
-        return; // 뮤텍스 이미 해제됨
+        return;
       }
       xSemaphoreGive(gsm->cmd_mutex);
     }
@@ -656,38 +573,30 @@ void gsm_parse_response(gsm_t *gsm) {
 
     if (xSemaphoreTake(gsm->cmd_mutex, portMAX_DELAY) == pdTRUE) {
       if (gsm->current_cmd) {
-        // ★★★ OK 응답과 동일한 순서 적용 ★★★
-        // 1. current_cmd 내용 백업
         SemaphoreHandle_t caller_sem = gsm->current_cmd->sem;
         at_cmd_handler callback = gsm->current_cmd->callback;
-        gsm_cmd_t cmd_backup = gsm->current_cmd->cmd;    // ★ cmd도 백업
-        tcp_pbuf_t *tx_pbuf = gsm->current_cmd->tx_pbuf; // ★ pbuf 백업
+        gsm_cmd_t cmd_backup = gsm->current_cmd->cmd;
+        tcp_pbuf_t *tx_pbuf = gsm->current_cmd->tx_pbuf;
 
-        // 2. current_cmd 먼저 NULL로 설정 (재진입 방지)
         gsm->current_cmd = NULL;
 
-        // 3. Producer Task 먼저 깨우기 (다음 명령 준비)
         if (gsm->producer_sem) {
           xSemaphoreGive(gsm->producer_sem);
         }
 
-        // 4. 뮤텍스 해제
         xSemaphoreGive(gsm->cmd_mutex);
 
-        // 5. Caller 나중에 깨우기 (또는 콜백 실행)
         if (caller_sem) {
           xSemaphoreGive(caller_sem);
         } else if (callback) {
-          // ERROR 시 cmd만 전달, msg는 NULL
           callback(gsm, cmd_backup, NULL, false);
         }
 
-        // 6. ★ TX pbuf 해제 (에러 발생 시에도 해제)
         if (tx_pbuf) {
           tcp_pbuf_free(tx_pbuf);
         }
 
-        return; // 뮤텍스 이미 해제됨
+        return;
       }
       xSemaphoreGive(gsm->cmd_mutex);
     }
@@ -698,48 +607,28 @@ void gsm_parse_response(gsm_t *gsm) {
   }
 }
 
-// struct
-// {
-//   char data[128];
-//   uint8_t len;
-// }gsm_recv_t;
-
-// static inline void recv_add(char ch) {
-//   if (gps->nmea.term_pos < GPS_NMEA_TERM_SIZE - 1) {
-//     gps->nmea.term_str[gps->nmea.term_pos] = ch;
-//     gps->nmea.term_str[++gps->nmea.term_pos] = 0;
-//   }
-// }
-
 void gsm_parse_process(gsm_t *gsm, const void *data, size_t len) {
   const uint8_t *d = data;
   static char ch_prev1 = 0;
 
   for (; len > 0; ++d, --len) {
-    // ★ TCP 바이너리 데이터 읽기 모드
     if (gsm->tcp.buffer.is_reading_data) {
-      // +QIRD 응답 후 바이너리 데이터 읽기
       if (gsm->tcp.buffer.read_data_len < gsm->tcp.buffer.expected_data_len &&
           gsm->tcp.buffer.rx_len < GSM_TCP_RX_BUFFER_SIZE) {
         gsm->tcp.buffer.rx_buf[gsm->tcp.buffer.rx_len++] = *d;
         gsm->tcp.buffer.read_data_len++;
 
-        // 모든 데이터를 읽었으면
         if (gsm->tcp.buffer.read_data_len >=
             gsm->tcp.buffer.expected_data_len) {
-          // 콜백 호출 (current_cmd에서 connect_id 추출)
-          // ★ tcp_mutex와 cmd_mutex 모두 필요 (데드락 방지를 위해 tcp_mutex
-          // 먼저)
           if (xSemaphoreTake(gsm->tcp.tcp_mutex, portMAX_DELAY) == pdTRUE) {
             if (gsm->cmd_mutex &&
                 xSemaphoreTake(gsm->cmd_mutex, portMAX_DELAY) == pdTRUE) {
               if (gsm->current_cmd && gsm->current_cmd->cmd == GSM_CMD_QIRD) {
-                // msg에 데이터 포인터 설정
-                gsm->current_cmd->msg.qird.data = gsm->tcp.buffer.rx_buf;
-                gsm->current_cmd->msg.qird.read_actual_length =
-                    gsm->tcp.buffer.rx_len;
-                gsm->current_cmd->msg.qird.connect_id =
-                    gsm->tcp.buffer.current_connect_id;
+                  gsm->current_cmd->msg.qird.data = gsm->tcp.buffer.rx_buf;
+                  gsm->current_cmd->msg.qird.read_actual_length =
+                  gsm->tcp.buffer.rx_len;
+                  gsm->current_cmd->msg.qird.connect_id =
+                  gsm->tcp.buffer.current_connect_id;
               }
               xSemaphoreGive(gsm->cmd_mutex);
             }
@@ -757,19 +646,14 @@ void gsm_parse_process(gsm_t *gsm, const void *data, size_t len) {
       }
     }
 
-    // ★ 프롬프트(>) 처리 (AT+QISEND)
     if (*d == '>' && recv_payload_len(gsm) == 0) {
-      // '>' 프롬프트 수신 - 데이터 전송
       if (xSemaphoreTake(gsm->cmd_mutex, portMAX_DELAY) == pdTRUE) {
         if (gsm->current_cmd && gsm->current_cmd->cmd == GSM_CMD_QISEND &&
             gsm->current_cmd->wait_type == GSM_WAIT_PROMPT) {
-          // ★ pbuf에서 데이터 전송
           if (gsm->current_cmd->tx_pbuf) {
             tcp_pbuf_t *pbuf = gsm->current_cmd->tx_pbuf;
             gsm->ops->send((const char *)pbuf->payload, pbuf->len);
           }
-
-          // 이제 응답 대기 모드로 변경
           gsm->current_cmd->wait_type = GSM_WAIT_EXPECTED;
         }
         xSemaphoreGive(gsm->cmd_mutex);
@@ -784,7 +668,6 @@ void gsm_parse_process(gsm_t *gsm, const void *data, size_t len) {
     }
 
     if (ch_prev1 == '\r' && *d == '\n') {
-      /* 수신받은 데이터가 있을 경우에만 처리 */
       if (recv_payload_len(gsm)) {
         gsm_parse_response(gsm);
         clear_payload(gsm);
@@ -815,7 +698,6 @@ void gsm_send_at_cmd(gsm_t *gsm, gsm_cmd_t cmd, gsm_at_mode_t at_mode,
       .tx_pbuf = NULL,
   };
 
-  // 파라미터 복사
   if (params != NULL) {
     snprintf(msg.params, GSM_AT_CMD_PARAM_SIZE, "%s", params);
   } else {
@@ -823,11 +705,9 @@ void gsm_send_at_cmd(gsm_t *gsm, gsm_cmd_t cmd, gsm_at_mode_t at_mode,
   }
 
   if (callback) {
-    // 비동기식
     msg.callback = callback;
     xQueueSend(gsm->at_cmd_queue, &msg, portMAX_DELAY);
   } else {
-    // 동기식
     gsm->status.is_ok = 0;
     gsm->status.is_err = 0;
     gsm->status.is_timeout = 0;
@@ -837,7 +717,6 @@ void gsm_send_at_cmd(gsm_t *gsm, gsm_cmd_t cmd, gsm_at_mode_t at_mode,
 
     xQueueSend(gsm->at_cmd_queue, &msg, portMAX_DELAY);
 
-    // 타임아웃 설정 (명령어별 타임아웃 + 1초 여유)
     uint32_t timeout_ms = gsm->at_tbl[cmd].timeout_ms;
     if (timeout_ms == 0)
       timeout_ms = 5000;
@@ -876,7 +755,7 @@ void gsm_send_at_cgdcont(gsm_t *gsm, gsm_at_mode_t at_mode,
       .wait_type = GSM_WAIT_NONE,
       .callback = NULL,
       .sem = NULL,
-      .tx_pbuf = NULL, // TCP 아님
+      .tx_pbuf = NULL,
   };
 
   if (at_mode == GSM_AT_WRITE) {
@@ -906,43 +785,33 @@ void gsm_send_at_cgdcont(gsm_t *gsm, gsm_at_mode_t at_mode,
   }
 
   if (callback) {
-    // 비동기식: 콜백 설정하고 즉시 리턴
     msg.callback = callback;
     xQueueSend(gsm->at_cmd_queue, &msg, portMAX_DELAY);
   } else {
-    // 동기식: caller가 직접 대기
-    // ★ 명령어 전송 전에 status 초기화 ★
     gsm->status.is_ok = 0;
     gsm->status.is_err = 0;
     gsm->status.is_timeout = 0;
 
     msg.sem = xSemaphoreCreateBinary();
-    SemaphoreHandle_t sem = msg.sem; // 핸들 저장
+    SemaphoreHandle_t sem = msg.sem;
 
-    // 큐에 전송
     xQueueSend(gsm->at_cmd_queue, &msg, portMAX_DELAY);
 
-    // ★ Caller timeout = Producer timeout + 여유시간
-    // → Producer가 항상 먼저 timeout 되어 정리 작업 수행
     uint32_t timeout_ms = gsm->at_tbl[GSM_CMD_CGDCONT].timeout_ms;
     if (timeout_ms == 0)
       timeout_ms = 5000;
-    timeout_ms += 1000; // Producer보다 1초 더 대기
+    timeout_ms += 1000;
 
     TickType_t timeout_ticks = pdMS_TO_TICKS(timeout_ms);
     BaseType_t result = xSemaphoreTake(sem, timeout_ticks);
 
-    // 세마포어 삭제
     vSemaphoreDelete(sem);
 
-    // 타임아웃 체크
     if (result != pdTRUE) {
-      // 타임아웃 발생 - 명령어 실패로 표시
       gsm->status.is_ok = 0;
       gsm->status.is_err = 0;
       gsm->status.is_timeout = 1;
     }
-    // 응답 받았음 - 결과는 gsm->status.is_ok에서 확인 가능
   }
 }
 
@@ -959,7 +828,6 @@ int gsm_uart_send(const char *data, size_t len) {
   return 0;
 }
 
-// gsm_port.c의 리셋 함수 선언
 extern int gsm_port_reset(void);
 
 static const gsm_hal_ops_t stm32_hal_ops = {.reset = gsm_port_reset,
@@ -974,26 +842,18 @@ void gsm_init(gsm_t *gsm, evt_handler_t handler, void *args) {
   gsm->current_cmd = NULL;
   gsm->cmd_mutex = xSemaphoreCreateMutex();
   gsm->producer_sem =
-      xSemaphoreCreateBinary(); // lwcell 방식: Producer Task 대기용
+      xSemaphoreCreateBinary();
 
   gsm->at_tbl = gsm_at_cmd_handlers;
   gsm->urc_stat_tbl = urc_status_handlers;
   gsm->urc_info_tbl = urc_info_handlers;
 
   gsm->ops = &stm32_hal_ops;
-  gsm->at_cmd_queue = xQueueCreate(15, sizeof(gsm_at_cmd_t));
+  gsm->at_cmd_queue = xQueueCreate(9, sizeof(gsm_at_cmd_t));
 
-  // TCP 초기화
   gsm_tcp_init(gsm);
 }
 
-//=============================================================================
-// TCP pbuf 관리 함수
-//=============================================================================
-
-/**
- * @brief pbuf 할당
- */
 tcp_pbuf_t *tcp_pbuf_alloc(size_t len) {
   tcp_pbuf_t *pbuf = (tcp_pbuf_t *)pvPortMalloc(sizeof(tcp_pbuf_t));
   if (!pbuf)
@@ -1012,9 +872,6 @@ tcp_pbuf_t *tcp_pbuf_alloc(size_t len) {
   return pbuf;
 }
 
-/**
- * @brief pbuf 해제
- */
 void tcp_pbuf_free(tcp_pbuf_t *pbuf) {
   if (!pbuf)
     return;
@@ -1025,9 +882,6 @@ void tcp_pbuf_free(tcp_pbuf_t *pbuf) {
   vPortFree(pbuf);
 }
 
-/**
- * @brief pbuf 체인 전체 해제
- */
 void tcp_pbuf_free_chain(tcp_pbuf_t *pbuf) {
   tcp_pbuf_t *next;
 
@@ -1038,24 +892,16 @@ void tcp_pbuf_free_chain(tcp_pbuf_t *pbuf) {
   }
 }
 
-/**
- * @brief 소켓 pbuf 큐에 추가
- */
 int tcp_pbuf_enqueue(gsm_tcp_socket_t *socket, tcp_pbuf_t *pbuf) {
   if (!socket || !pbuf)
     return -1;
 
-  // ★ 힙 메모리 오버플로우 방지: 최대 제한 확인
-  // 실시간 스트리밍(NTRIP)은 최신 데이터가 중요하므로
-  // 메모리 부족 시 오래된 데이터를 버리고 새 데이터 수신
   while (socket->pbuf_total_len + pbuf->len > GSM_TCP_PBUF_MAX_LEN) {
-    // 가장 오래된 pbuf 제거
     tcp_pbuf_t *old = tcp_pbuf_dequeue(socket);
     if (old) {
       tcp_pbuf_free(old);
     } else {
-      // 큐가 비었는데도 메모리 초과 (단일 pbuf가 너무 큼)
-      // 이 경우 새 pbuf가 제한보다 크므로 거부
+
       return -1;
     }
   }
@@ -1063,22 +909,17 @@ int tcp_pbuf_enqueue(gsm_tcp_socket_t *socket, tcp_pbuf_t *pbuf) {
   pbuf->next = NULL;
 
   if (!socket->pbuf_head) {
-    // 큐가 비어있음
     socket->pbuf_head = pbuf;
     socket->pbuf_tail = pbuf;
   } else {
-    // 큐 끝에 추가
     socket->pbuf_tail->next = pbuf;
     socket->pbuf_tail = pbuf;
   }
 
   socket->pbuf_total_len += pbuf->len;
-  return 0; // 성공
+  return 0;
 }
 
-/**
- * @brief 소켓 pbuf 큐에서 꺼내기
- */
 tcp_pbuf_t *tcp_pbuf_dequeue(gsm_tcp_socket_t *socket) {
   if (!socket || !socket->pbuf_head)
     return NULL;
@@ -1096,13 +937,6 @@ tcp_pbuf_t *tcp_pbuf_dequeue(gsm_tcp_socket_t *socket) {
   return pbuf;
 }
 
-//=============================================================================
-// TCP 태스크
-//=============================================================================
-
-/**
- * @brief TCP 읽기 완료 콜백 (비동기)
- */
 static void tcp_read_complete_callback(gsm_t *gsm, gsm_cmd_t cmd, void *msg,
                                        bool is_ok) {
   if (!is_ok || !msg || cmd != GSM_CMD_QIRD)
@@ -1121,17 +955,13 @@ static void tcp_read_complete_callback(gsm_t *gsm, gsm_cmd_t cmd, void *msg,
       if (pbuf) {
         memcpy(pbuf->payload, m->qird.data, m->qird.read_actual_length);
 
-        // ★ gsm_tcp_socket_t의 pbuf 링크리스트에 추가 (lwcell 방식)
-        // 실시간 스트리밍: 메모리 부족 시 오래된 데이터 자동 버림
         tcp_pbuf_enqueue(socket, pbuf);
 
-        // 사용자 콜백 호출 (뮤텍스 밖에서)
         tcp_recv_callback_t on_recv = socket->on_recv;
 
         xSemaphoreGive(gsm->tcp.tcp_mutex);
 
         if (on_recv) {
-          // 데이터 도착 알림 (콜백에서 tcp_pbuf_dequeue 호출)
           on_recv(cid);
         }
         tcp_event_t evt = {.type = TCP_EVT_CONTINUE_READ, .connect_id = cid};
@@ -1143,14 +973,7 @@ static void tcp_read_complete_callback(gsm_t *gsm, gsm_cmd_t cmd, void *msg,
   }
 }
 
-/**
- * @brief TCP 전용 태스크
- *
- * 역할:
- * - +QIURC: "recv" 이벤트 수신 시 AT+QIRD로 데이터 읽기
- * - +QIURC: "closed" 이벤트 수신 시 소켓 정리
- * - 데드락 방지: 별도 태스크이므로 동기 함수 호출 가능
- */
+
 static void gsm_tcp_task(void *arg) {
   gsm_t *gsm = (gsm_t *)arg;
   tcp_event_t evt;
@@ -1159,8 +982,6 @@ static void gsm_tcp_task(void *arg) {
     if (xQueueReceive(gsm->tcp.event_queue, &evt, portMAX_DELAY) == pdTRUE) {
       switch (evt.type) {
       case TCP_EVT_RECV_NOTIFY: {
-        // ✅ 여기서는 동기 호출 불가능! (데드락 위험)
-        // ✅ 비동기 콜백 사용
         if (evt.connect_id < GSM_TCP_MAX_SOCKETS) {
           gsm_tcp_read(gsm, evt.connect_id, 1460, tcp_read_complete_callback);
         }
@@ -1186,7 +1007,6 @@ static void gsm_tcp_task(void *arg) {
 
             xSemaphoreGive(gsm->tcp.tcp_mutex);
 
-            // 콜백 호출 (뮤텍스 밖)
             if (on_close) {
               on_close(evt.connect_id);
             }
@@ -1197,9 +1017,7 @@ static void gsm_tcp_task(void *arg) {
         break;
       }
 
-      case TCP_EVT_CONTINUE_READ: {  // ⭐ 추가 (RECV와 CLOSED 사이에)
-        // ✅ EC25 버퍼 드레인 계속 (QIURC 방지)
-        // 콜백에서 데이터를 읽은 후, 버퍼에 더 데이터가 있을 수 있으므로 계속 읽음
+      case TCP_EVT_CONTINUE_READ: {
         if (evt.connect_id < GSM_TCP_MAX_SOCKETS) {
           gsm_tcp_read(gsm, evt.connect_id, 1460, tcp_read_complete_callback);
         }
@@ -1213,18 +1031,12 @@ static void gsm_tcp_task(void *arg) {
   }
 }
 
-//=============================================================================
-// TCP 관련 함수 구현
-//=============================================================================
-
 void gsm_tcp_init(gsm_t *gsm) {
   if (!gsm)
     return;
 
-  // TCP 뮤텍스 생성
   gsm->tcp.tcp_mutex = xSemaphoreCreateMutex();
 
-  // 모든 소켓 초기화
   for (int i = 0; i < GSM_TCP_MAX_SOCKETS; i++) {
     gsm->tcp.sockets[i].connect_id = i;
     gsm->tcp.sockets[i].state = GSM_TCP_STATE_CLOSED;
@@ -1238,14 +1050,11 @@ void gsm_tcp_init(gsm_t *gsm) {
     gsm->tcp.sockets[i].on_close = NULL;
   }
 
-  // TCP 버퍼 초기화
   memset(&gsm->tcp.buffer, 0, sizeof(gsm_tcp_buffer_t));
 
-  // TCP 이벤트 큐 생성
-  gsm->tcp.event_queue = xQueueCreate(15, sizeof(tcp_event_t));
+  gsm->tcp.event_queue = xQueueCreate(10, sizeof(tcp_event_t));
 
-  // TCP 태스크 생성
-  xTaskCreate(gsm_tcp_task, "gsm_tcp", 2048, gsm, tskIDLE_PRIORITY + 3,
+  xTaskCreate(gsm_tcp_task, "gsm_tcp", 1536, gsm, tskIDLE_PRIORITY + 3,
               &gsm->tcp.task_handle);
 }
 
@@ -1267,11 +1076,10 @@ int gsm_tcp_open(gsm_t *gsm, uint8_t connect_id, uint8_t context_id,
 
   gsm_tcp_socket_t *socket = &gsm->tcp.sockets[connect_id];
 
-  // 소켓 상태 확인
   if (xSemaphoreTake(gsm->tcp.tcp_mutex, portMAX_DELAY) == pdTRUE) {
     if (socket->state != GSM_TCP_STATE_CLOSED) {
       xSemaphoreGive(gsm->tcp.tcp_mutex);
-      return -1; // 이미 사용 중인 소켓
+      return -1;
     }
 
     // 소켓 설정
@@ -1287,27 +1095,22 @@ int gsm_tcp_open(gsm_t *gsm, uint8_t connect_id, uint8_t context_id,
     xSemaphoreGive(gsm->tcp.tcp_mutex);
   }
 
-  // AT+QIOPEN 명령 전송
-  // AT+QIOPEN=<contextID>,<connectID>,"TCP","<IP
-  // address>",<remote_port>,<local_port>,<access_mode>
   gsm_at_cmd_t msg = {
       .at_mode = GSM_AT_WRITE,
       .cmd = GSM_CMD_QIOPEN,
       .wait_type = GSM_WAIT_EXPECTED,
       .callback = callback,
       .sem = NULL,
-      .tx_pbuf = NULL, // TCP 아님
+      .tx_pbuf = NULL,
   };
 
   snprintf(msg.params, GSM_AT_CMD_PARAM_SIZE, "%d,%d,\"TCP\",\"%s\",%d,%d,0",
            context_id, connect_id, remote_ip, remote_port, local_port);
 
   if (callback) {
-    // 비동기식
     xQueueSend(gsm->at_cmd_queue, &msg, portMAX_DELAY);
     return 0;
   } else {
-    // 동기식
     gsm->status.is_ok = 0;
     gsm->status.is_err = 0;
     gsm->status.is_timeout = 0;
@@ -1317,12 +1120,10 @@ int gsm_tcp_open(gsm_t *gsm, uint8_t connect_id, uint8_t context_id,
 
     xQueueSend(gsm->at_cmd_queue, &msg, portMAX_DELAY);
 
-    // ★ Caller timeout = Producer timeout + 여유시간
-    // (QIOPEN은 시간이 오래 걸릴 수 있음 - 기본 150초)
     uint32_t timeout_ms = gsm->at_tbl[GSM_CMD_QIOPEN].timeout_ms;
     if (timeout_ms == 0)
       timeout_ms = 150000;
-    timeout_ms += 1000; // Producer보다 1초 더 대기
+    timeout_ms += 1000;
 
     TickType_t timeout_ticks = pdMS_TO_TICKS(timeout_ms);
     BaseType_t result = xSemaphoreTake(sem, timeout_ticks);
@@ -1330,7 +1131,6 @@ int gsm_tcp_open(gsm_t *gsm, uint8_t connect_id, uint8_t context_id,
     vSemaphoreDelete(sem);
 
     if (result != pdTRUE || !gsm->status.is_ok) {
-      // 실패 시 소켓 상태 복원
       if (xSemaphoreTake(gsm->tcp.tcp_mutex, portMAX_DELAY) == pdTRUE) {
         socket->state = GSM_TCP_STATE_CLOSED;
         if (socket->open_sem) {
@@ -1365,7 +1165,7 @@ int gsm_tcp_close(gsm_t *gsm, uint8_t connect_id, at_cmd_handler callback) {
   }
 
   gsm_tcp_socket_t *socket = &gsm->tcp.sockets[connect_id];
-  // 소켓 상태 확인
+
   if (xSemaphoreTake(gsm->tcp.tcp_mutex, portMAX_DELAY) == pdTRUE) {
     if (socket->state == GSM_TCP_STATE_CLOSED) {
       xSemaphoreGive(gsm->tcp.tcp_mutex);
@@ -1374,7 +1174,6 @@ int gsm_tcp_close(gsm_t *gsm, uint8_t connect_id, at_cmd_handler callback) {
 
     socket->state = GSM_TCP_STATE_CLOSING;
 
-    // ★ close_sem 생성 (+QICLOSE URC 대기용)
     if (socket->close_sem) {
       vSemaphoreDelete(socket->close_sem);
     }
@@ -1383,14 +1182,13 @@ int gsm_tcp_close(gsm_t *gsm, uint8_t connect_id, at_cmd_handler callback) {
     xSemaphoreGive(gsm->tcp.tcp_mutex);
   }
 
-  // AT+QICLOSE=<connectID>,<timeout>
   gsm_at_cmd_t msg = {
       .at_mode = GSM_AT_WRITE,
       .cmd = GSM_CMD_QICLOSE,
       .wait_type = GSM_WAIT_NONE,
       .callback = callback,
       .sem = NULL,
-      .tx_pbuf = NULL, // TCP 아님
+      .tx_pbuf = NULL,
   };
 
   snprintf(msg.params, GSM_AT_CMD_PARAM_SIZE, "%d,0", connect_id);
@@ -1408,12 +1206,11 @@ int gsm_tcp_close(gsm_t *gsm, uint8_t connect_id, at_cmd_handler callback) {
 
     xQueueSend(gsm->at_cmd_queue, &msg, portMAX_DELAY);
 
-    // ★ Caller timeout = Producer timeout + 여유시간
     uint32_t timeout_ms = gsm->at_tbl[GSM_CMD_QICLOSE].timeout_ms;
     if (timeout_ms == 0)
       timeout_ms = 10000;
 
-    timeout_ms += 1000; // Producer보다 1초 더 대기
+    timeout_ms += 1000;
 
     TickType_t timeout_ticks = pdMS_TO_TICKS(timeout_ms);
     BaseType_t result = xSemaphoreTake(sem, timeout_ticks);
@@ -1421,7 +1218,6 @@ int gsm_tcp_close(gsm_t *gsm, uint8_t connect_id, at_cmd_handler callback) {
     vSemaphoreDelete(sem);
 
     if (result != pdTRUE || !gsm->status.is_ok) {
-      // OK 실패 시 close_sem 정리
       if (xSemaphoreTake(gsm->tcp.tcp_mutex, portMAX_DELAY) == pdTRUE) {
         if (socket->close_sem) {
           vSemaphoreDelete(socket->close_sem);
@@ -1433,11 +1229,8 @@ int gsm_tcp_close(gsm_t *gsm, uint8_t connect_id, at_cmd_handler callback) {
       return -1;
     }
 
-    // ★★★ OK 받은 후 +QICLOSE URC 대기 ★★★
-    // EC25: AT+QICLOSE → OK → +QICLOSE: <id> (실제 닫힘)
     result = xSemaphoreTake(socket->close_sem, pdMS_TO_TICKS(5000));
 
-    // close_sem 정리
     if (xSemaphoreTake(gsm->tcp.tcp_mutex, portMAX_DELAY) == pdTRUE) {
       if (socket->close_sem) {
         vSemaphoreDelete(socket->close_sem);
@@ -1447,7 +1240,6 @@ int gsm_tcp_close(gsm_t *gsm, uint8_t connect_id, at_cmd_handler callback) {
     }
 
     if (result != pdTRUE) {
-      // +QICLOSE URC 타임아웃 - 강제로 상태 변경
       LOG_WARN("gsm_tcp_close: +QICLOSE URC 타임아웃, 강제 닫힘 처리");
       if (xSemaphoreTake(gsm->tcp.tcp_mutex, portMAX_DELAY) == pdTRUE) {
         socket->state = GSM_TCP_STATE_CLOSED;
@@ -1456,6 +1248,8 @@ int gsm_tcp_close(gsm_t *gsm, uint8_t connect_id, at_cmd_handler callback) {
       return 0;
     }
   }
+
+  return 0;
 }
 
 int gsm_tcp_close_force(gsm_t *gsm, uint8_t connect_id) {
@@ -1469,109 +1263,64 @@ int gsm_tcp_close_force(gsm_t *gsm, uint8_t connect_id) {
 
   LOG_INFO("gsm_tcp_close_force: connect_id=%d 강제 닫기 시작", connect_id);
 
-  // ★ 상태 무관 강제 닫기 - close_sem 생성
-
   if (xSemaphoreTake(gsm->tcp.tcp_mutex, portMAX_DELAY) == pdTRUE) {
-
     socket->state = GSM_TCP_STATE_CLOSING;
-
     if (socket->close_sem) {
-
       vSemaphoreDelete(socket->close_sem);
     }
 
     socket->close_sem = xSemaphoreCreateBinary();
-
     xSemaphoreGive(gsm->tcp.tcp_mutex);
   }
 
-  // AT+QICLOSE=<connectID>,0 (타임아웃 0 = 즉시)
-
   gsm_at_cmd_t msg = {
-
       .at_mode = GSM_AT_WRITE,
-
       .cmd = GSM_CMD_QICLOSE,
-
       .wait_type = GSM_WAIT_NONE,
-
       .callback = NULL,
-
       .sem = NULL,
-
       .tx_pbuf = NULL,
-
   };
 
   snprintf(msg.params, GSM_AT_CMD_PARAM_SIZE, "%d,0", connect_id);
-
   gsm->status.is_ok = 0;
-
   gsm->status.is_err = 0;
-
   gsm->status.is_timeout = 0;
-
   msg.sem = xSemaphoreCreateBinary();
-
   SemaphoreHandle_t sem = msg.sem;
-
   xQueueSend(gsm->at_cmd_queue, &msg, portMAX_DELAY);
 
-  // OK 대기
-
   TickType_t timeout_ticks = pdMS_TO_TICKS(11000);
-
   BaseType_t result = xSemaphoreTake(sem, timeout_ticks);
-
   vSemaphoreDelete(sem);
 
   if (result != pdTRUE) {
-
     LOG_ERR("gsm_tcp_close_force: OK 타임아웃");
 
-    // close_sem 정리
-
     if (xSemaphoreTake(gsm->tcp.tcp_mutex, portMAX_DELAY) == pdTRUE) {
-
       if (socket->close_sem) {
-
         vSemaphoreDelete(socket->close_sem);
-
         socket->close_sem = NULL;
       }
-
       socket->state = GSM_TCP_STATE_CLOSED;
-
       xSemaphoreGive(gsm->tcp.tcp_mutex);
     }
 
     return -1;
   }
 
-  // ★★★ OK 받은 후 +QICLOSE URC 대기 ★★★
-
-  LOG_INFO("gsm_tcp_close_force: OK 수신, +QICLOSE URC 대기 중...");
-
   result = xSemaphoreTake(socket->close_sem, pdMS_TO_TICKS(5000));
 
-  // close_sem 정리
-
   if (xSemaphoreTake(gsm->tcp.tcp_mutex, portMAX_DELAY) == pdTRUE) {
-
     if (socket->close_sem) {
-
       vSemaphoreDelete(socket->close_sem);
-
       socket->close_sem = NULL;
     }
 
     if (result != pdTRUE) {
-
       LOG_WARN("gsm_tcp_close_force: +QICLOSE URC 타임아웃, 강제 닫힘 처리");
-
       socket->state = GSM_TCP_STATE_CLOSED;
     }
-
     xSemaphoreGive(gsm->tcp.tcp_mutex);
   }
 
@@ -1589,28 +1338,24 @@ int gsm_tcp_send(gsm_t *gsm, uint8_t connect_id, const uint8_t *data,
 
   gsm_tcp_socket_t *socket = &gsm->tcp.sockets[connect_id];
 
-  // 소켓 상태 확인
   if (socket->state != GSM_TCP_STATE_CONNECTED) {
     return -1;
   }
 
-  // ★ pbuf 할당 및 데이터 복사 (race condition 방지)
-  // → 각 명령마다 독립적인 버퍼 사용
   tcp_pbuf_t *tx_pbuf = tcp_pbuf_alloc(len);
   if (!tx_pbuf) {
-    return -1; // 메모리 부족
+    return -1;
   }
 
   memcpy(tx_pbuf->payload, data, len);
 
-  // AT+QISEND=<connectID>,<send_length>
   gsm_at_cmd_t msg = {
       .at_mode = GSM_AT_WRITE,
       .cmd = GSM_CMD_QISEND,
-      .wait_type = GSM_WAIT_PROMPT, // '>' 프롬프트 대기
+      .wait_type = GSM_WAIT_PROMPT,
       .callback = callback,
       .sem = NULL,
-      .tx_pbuf = tx_pbuf, // ★ pbuf 저장
+      .tx_pbuf = tx_pbuf,
   };
 
   snprintf(msg.params, GSM_AT_CMD_PARAM_SIZE, "%d,%u", connect_id, len);
@@ -1628,13 +1373,10 @@ int gsm_tcp_send(gsm_t *gsm, uint8_t connect_id, const uint8_t *data,
 
     xQueueSend(gsm->at_cmd_queue, &msg, portMAX_DELAY);
 
-    // ★ Caller timeout = Producer timeout + 여유시간
-    // → Producer가 항상 먼저 timeout 되어 정리 작업 수행
-    // → Caller의 sem 삭제 전에 Producer가 sem을 Give (안전)
     uint32_t timeout_ms = gsm->at_tbl[GSM_CMD_QISEND].timeout_ms;
     if (timeout_ms == 0)
       timeout_ms = 5000;
-    timeout_ms += 1000; // Producer보다 1초 더 대기
+    timeout_ms += 1000;
 
     TickType_t timeout_ticks = pdMS_TO_TICKS(timeout_ms);
     BaseType_t result = xSemaphoreTake(sem, timeout_ticks);
@@ -1658,19 +1400,17 @@ int gsm_tcp_read(gsm_t *gsm, uint8_t connect_id, size_t max_len,
 
   gsm_tcp_socket_t *socket = &gsm->tcp.sockets[connect_id];
 
-  // 소켓 상태 확인
   if (socket->state != GSM_TCP_STATE_CONNECTED) {
     return -1;
   }
 
-  // AT+QIRD=<connectID>,<read_length>
   gsm_at_cmd_t msg = {
       .at_mode = GSM_AT_WRITE,
       .cmd = GSM_CMD_QIRD,
       .wait_type = GSM_WAIT_EXPECTED,
       .callback = callback,
       .sem = NULL,
-      .tx_pbuf = NULL, // QIRD는 수신만
+      .tx_pbuf = NULL,
   };
 
   snprintf(msg.params, GSM_AT_CMD_PARAM_SIZE, "%d,%u", connect_id, max_len);
@@ -1688,11 +1428,10 @@ int gsm_tcp_read(gsm_t *gsm, uint8_t connect_id, size_t max_len,
 
     xQueueSend(gsm->at_cmd_queue, &msg, portMAX_DELAY);
 
-    // ★ Caller timeout = Producer timeout + 여유시간
     uint32_t timeout_ms = gsm->at_tbl[GSM_CMD_QIRD].timeout_ms;
     if (timeout_ms == 0)
       timeout_ms = 5000;
-    timeout_ms += 1000; // Producer보다 1초 더 대기
+    timeout_ms += 1000;
 
     TickType_t timeout_ticks = pdMS_TO_TICKS(timeout_ms);
     BaseType_t result = xSemaphoreTake(sem, timeout_ticks);
@@ -1708,7 +1447,8 @@ int gsm_tcp_read(gsm_t *gsm, uint8_t connect_id, size_t max_len,
 }
 
 /**
- * @brief ATE 전송 (에코 설정)
+ * @brief 
+ * 
  */
 void gsm_send_at_ate(gsm_t *gsm, uint8_t echo_on, at_cmd_handler callback) {
   char params[4] = {0};

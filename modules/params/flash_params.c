@@ -11,7 +11,9 @@
 #define FLASH_USER_PARAMS_SECTOR  FLASH_SECTOR_11
 #define FLASH_USER_START_ADDR    0x080E0000U
 
-static const user_params_t user_default_params = {
+
+static const user_params_t user_default_params = 
+{
     .magic = FLASH_MAGIC_NUMBER,
     .ntrip_url = "ntrip.hi-rtk.io",
     .ntrip_port = "2101",

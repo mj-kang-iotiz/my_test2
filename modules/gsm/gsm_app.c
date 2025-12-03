@@ -13,68 +13,12 @@
 #include "log.h"
 
 void gsm_socket_monitor_start(void);
-/**
- * ============================================================================
- * AT 커맨드 처리 아키텍처 설명
- * ============================================================================
- *
- * 이 설계는 lwcell의 Producer-Consumer 패턴을 따릅니다.
- *
- * [3개 Task 구조]
- * 1. Caller Task: AT 명령을 요청하는 태스크 (여러 개 가능)
- * 2. Producer Task (gsm_at_cmd_process_task): 큐에서 명령을 꺼내 UART로 전송
- * 3. Consumer Task (gsm_process_task): UART 수신 데이터를 파싱
- *
- * [동기화 메커니즘]
- * - at_cmd_queue: Caller → Producer 명령 전달
- * - producer_sem: Consumer → Producer 응답 완료 시그널
- * - msg.sem: Consumer → Caller 응답 완료 시그널 (동기식 호출 시)
- * - cmd_mutex: current_cmd 접근 보호
- *
- * [실행 흐름 - 동기식 호출]
- * 1. Caller: 명령 생성 + sem 생성 → 큐에 전송 → sem 대기
- * 2. Producer: 큐에서 꺼냄 → current_cmd 설정 → UART 전송 → producer_sem 대기
- * 3. Consumer: UART 수신 → 파싱 → OK/ERROR 감지
- *              → current_cmd->sem Give (Caller 깨움)
- *              → producer_sem Give (Producer 깨움)
- * 4. Producer: 다음 명령 준비
- * 5. Caller: 응답 확인 (gsm->status.is_ok/is_err) → sem 삭제
- *
- * [실행 흐름 - 비동기식 호출]
- * Caller가 sem 대신 callback을 설정하면, Consumer가 콜백 실행
- *
- * [핵심 설계 결정]
- * Q: current_cmd_buf가 필요한가?
- * A: 아니오. Producer Task는 producer_sem을 받을 때까지 블로킹되므로
- *    at_cmd 스택 변수가 덮어써질 위험이 없음. 직접 포인터 사용 가능.
- *
- * Q: producer_sem과 msg.sem 순서는?
- * A: producer_sem을 먼저 Give하여 Producer가 다음 명령을 준비하도록 함.
- *    그 다음 msg.sem Give 또는 콜백 실행으로 Caller가 새 명령을 보낼 수 있게
- * 함.
- *
- * Q: TaskNotify 대신 세마포어를 쓰는 이유?
- * A: Producer Task는 xQueueReceive와 동시에 대기해야 함.
- *    TaskNotify와 큐를 동시에 대기하면 어느 것이 먼저 깨어날지 예측 불가.
- *
- * ============================================================================
- */
 
 char gsm_mem[2048];
+
 gsm_t gsm_handle;
 QueueHandle_t gsm_queue;
 
-//=============================================================================
-
-// 소켓 상태 모니터링 API
-
-//=============================================================================
-
-/**
-
- * @brief 소켓 상태 모니터링 중지
-
- */
 
 void gsm_socket_monitor_stop(void);
 void gsm_socket_update_recv_time(uint8_t connect_id);
@@ -88,29 +32,9 @@ static void gsm_at_cmd_process_task(void *pvParameters);
  * @param arg
  */
 void gsm_task_create(void *arg) {
-  xTaskCreate(gsm_process_task, "gsm", 2048, arg, tskIDLE_PRIORITY + 1, NULL);
+  xTaskCreate(gsm_process_task, "gsm", 1536, arg, tskIDLE_PRIORITY + 1, NULL);
 }
 
-/**
- * ============================================================================
- * LTE 초기화 시퀀스
- * ============================================================================
- * 1. RDY 이벤트 수신 → lte_init_start() 호출
- * 2. AT 테스트 → lte_at_test_callback()
- * 3. AT+CMEE=2 설정 → lte_cmee_set_callback()
- * 4. AT+CPIN? SIM 확인 → lte_cpin_check_callback()
- * 5. AT+CGDCONT APN 설정 → lte_apn_set_callback()
- * 6. AT+CGDCONT? APN 확인 → lte_apn_verify_callback()
- * 7. AT+COPS? 네트워크 등록 확인 → lte_network_check_callback()
- * 8. GSM_EVT_INIT_OK 이벤트 발생
- *
- * [재시도 메커니즘]
- * - 각 단계 실패 시 최대 3회 소프트웨어 재시도
- * - 3회 실패 후 EC25 모듈 하드웨어 리셋 + 1회 추가 시도
- * - 네트워크 등록은 6초마다 최대 20회 체크 (약 2분)
- * - 최종 실패 시 GSM_EVT_INIT_FAIL 이벤트 발생 (상위 레이어 판단)
- * ============================================================================
- */
 
 static TaskHandle_t ntrip_task_handle = NULL;
 static bool ntrip_should_restart = false;
@@ -118,14 +42,14 @@ static bool ntrip_should_restart = false;
 static void gsm_evt_handler(gsm_evt_t evt, void *args) {
   switch (evt) {
   case GSM_EVT_RDY: {
-    LOG_INFO("RDY 신호 수신");
+    LOG_INFO("RDY 수신");
 
     // LTE 초기화 시작
     if (lte_get_init_state() == LTE_INIT_IDLE) {
       // 첫 시작 또는 하드웨어 리셋 후
       if (lte_get_retry_count() == 0) {
         // 첫 시작: 카운터 초기화
-        LOG_INFO("첫 번째 LTE 초기화 시작");
+        LOG_INFO("LTE 초기화 시작");
       } else if (lte_get_retry_count() == LTE_INIT_MAX_RETRY + 1) {
         // 하드웨어 리셋 후: 카운터 유지
         LOG_INFO("하드웨어 리셋 후 LTE 초기화 재시작");
@@ -137,7 +61,7 @@ static void gsm_evt_handler(gsm_evt_t evt, void *args) {
   }
 
   case GSM_EVT_INIT_OK: {
-    LOG_INFO("애플리케이션: LTE 초기화 성공");
+    LOG_INFO("LTE 초기화 성공");
     // 여기서 추가 작업 수행 가능 (예: TCP 연결 등)
     if (!ntrip_should_restart) {
       ntrip_task_create(&gsm_handle);
@@ -152,7 +76,7 @@ static void gsm_evt_handler(gsm_evt_t evt, void *args) {
   }
 
   case GSM_EVT_INIT_FAIL: {
-    LOG_ERR("애플리케이션: LTE 초기화 실패");
+    LOG_ERR("LTE 초기화 실패");
     led_set_color(LED_ID_1, LED_COLOR_RED);
     // 여기서 재시도 로직 등 구현 가능
     break;
@@ -170,7 +94,7 @@ static void gsm_evt_handler(gsm_evt_t evt, void *args) {
 
   case GSM_EVT_PDP_DEACT:
     uint8_t context_id = args ? *(uint8_t *)args : 0;
-    LOG_ERR("PDP context 비활성화 감지 (context_id=%d)", context_id);
+    LOG_ERR("PDP context 비활성화 (context_id=%d)", context_id);
 
     // LED 노란색 (네트워크 문제)
     led_set_color(LED_ID_1, LED_COLOR_YELLOW);
@@ -216,7 +140,7 @@ static void gsm_process_task(void *pvParameter) {
   lte_set_network_check_timer(network_timer);
 
   // AT 커맨드 처리 태스크 생성
-  xTaskCreate(gsm_at_cmd_process_task, "gsm_at_cmd", 2048, &gsm_handle,
+  xTaskCreate(gsm_at_cmd_process_task, "gsm_at_cmd", 1536, &gsm_handle,
               tskIDLE_PRIORITY + 2, NULL);
 
   led_set_color(1, LED_COLOR_RED);
@@ -232,7 +156,7 @@ static void gsm_process_task(void *pvParameter) {
         size_t len = pos - old_pos;
         total_received = len;
         LOG_DEBUG("RX: %u bytes", len);
-        LOG_DEBUG_RAW("RAW: ", &gsm_mem[old_pos], len);
+//        LOG_DEBUG_RAW("RAW: ", &gsm_mem[old_pos], len);
         gsm_parse_process(&gsm_handle, &gsm_mem[old_pos], pos - old_pos);
       } else {
         size_t len1 = sizeof(gsm_mem) - old_pos;
@@ -240,11 +164,11 @@ static void gsm_process_task(void *pvParameter) {
         total_received = len1 + len2;
         LOG_DEBUG("RX: %u bytes (wrapped: %u+%u)", total_received, len1, len2);
 
-        LOG_DEBUG_RAW("RAW: ", &gsm_mem[old_pos], len1);
+//        LOG_DEBUG_RAW("RAW: ", &gsm_mem[old_pos], len1);
         gsm_parse_process(&gsm_handle, &gsm_mem[old_pos],
                           sizeof(gsm_mem) - old_pos);
         if (pos > 0) {
-          LOG_DEBUG_RAW("RAW: ", gsm_mem, len2);
+//          LOG_DEBUG_RAW("RAW: ", gsm_mem, len2);
 
           gsm_parse_process(&gsm_handle, gsm_mem, pos);
         }
@@ -325,11 +249,6 @@ static void gsm_at_cmd_process_task(void *pvParameters) {
       }
       gsm->ops->send("\r\n", 2);
 
-      // ★★★ lwcell 방식: Producer Task가 응답 대기 ★★★
-      // - 동기/비동기 관계없이 Producer는 항상 응답을 기다림
-      // - 다음 명령 순차 처리 보장 (응답 섞임 방지)
-      // - 10ms 폴링 대신 세마포어로 효율적 대기
-
       uint32_t timeout_ms = gsm->at_tbl[at_cmd.cmd].timeout_ms;
       if (timeout_ms == 0) {
         timeout_ms = 5000; // 기본 타임아웃 5초
@@ -338,17 +257,11 @@ static void gsm_at_cmd_process_task(void *pvParameters) {
       TickType_t timeout_ticks = pdMS_TO_TICKS(timeout_ms);
       TickType_t start_tick = xTaskGetTickCount();
 
-      // ★★★ Producer Task 응답 대기 ★★★
-      // - 응답이 올 때까지 여기서 블로킹
-      // - 블로킹 중에는 at_cmd 스택 변수가 보존됨 (덮어써질 위험 없음)
-      // - 타임아웃 또는 응답 수신 시 다음 루프로 진행
-      // - UART 전송 후 경과 시간을 고려하여 정확한 타임아웃 적용
       TickType_t elapsed_ticks = xTaskGetTickCount() - start_tick;
       TickType_t remaining_ticks =
           (timeout_ticks > elapsed_ticks) ? (timeout_ticks - elapsed_ticks) : 0;
 
       if (xSemaphoreTake(gsm->producer_sem, remaining_ticks) != pdTRUE) {
-        // ★ 타임아웃 발생: 명령 응답 없음
         if (xSemaphoreTake(gsm->cmd_mutex, portMAX_DELAY) == pdTRUE) {
           // 현재 명령이 우리가 보낸 명령인지 확인 (race condition 방지)
           if (gsm->current_cmd == &at_cmd) {
