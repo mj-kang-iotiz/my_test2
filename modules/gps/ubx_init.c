@@ -418,11 +418,6 @@ bool ubx_change_baudrate_and_init(gps_t* gps, uint32_t baudrate, gps_id_t gps_id
 {
     LOG_INFO("Starting F9P baudrate change to %d bps for GPS ID %d", baudrate, gps_id);
 
-    // Store context for callback
-    baudrate_ctx.gps = gps;
-    baudrate_ctx.gps_id = gps_id;
-    baudrate_ctx.init_type = init_type;
-
     // Prepare baudrate configuration
     ubx_cfg_item_t baudrate_cfg = {
         .key_id = CFG_BAUDRATE_UART1,
@@ -435,14 +430,48 @@ bool ubx_change_baudrate_and_init(gps_t* gps, uint32_t baudrate, gps_id_t gps_id
     baudrate_cfg.value[2] = (baudrate >> 16) & 0xFF;
     baudrate_cfg.value[3] = (baudrate >> 24) & 0xFF;
 
-    // Send baudrate change command with callback
-    if (!ubx_send_valset_cb(gps, UBX_CFG_LAYER_RAM, &baudrate_cfg, 1,
-                            on_baudrate_change_complete, &baudrate_ctx))
+    // Send baudrate change command (without waiting for ACK)
+    if (!ubx_send_valset(gps, UBX_CFG_LAYER_RAM, &baudrate_cfg, 1))
     {
         LOG_ERR("Failed to send baudrate change command");
         return false;
     }
 
-    LOG_INFO("Baudrate change command sent, waiting for ACK...");
+    LOG_INFO("Baudrate change command sent");
+
+    // F9P가 명령을 받고 즉시 보드레이트를 변경하므로
+    // 짧은 딜레이 후 즉시 STM UART 보드레이트 변경
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    // Change STM UART baudrate to 115200
+    gps_uart_change_baudrate(gps_id, baudrate);
+    LOG_INFO("STM UART baudrate changed to %d", baudrate);
+
+    // Delay for UART stabilization
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    // Execute initialization function based on type
+    switch (init_type)
+    {
+        case UBX_INIT_TYPE_BASE:
+            ubx_base_init(gps);
+            LOG_INFO("Starting UBX base init after baudrate change");
+            break;
+
+        case UBX_INIT_TYPE_ROVER:
+            ubx_rover_init(gps);
+            LOG_INFO("Starting UBX rover init after baudrate change");
+            break;
+
+        case UBX_INIT_TYPE_MOVING_BASE:
+            ubx_moving_base_init(gps);
+            LOG_INFO("Starting UBX moving base init after baudrate change");
+            break;
+
+        default:
+            LOG_ERR("Unknown init type!");
+            break;
+    }
+
     return true;
 }
