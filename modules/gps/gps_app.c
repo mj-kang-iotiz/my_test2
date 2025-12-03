@@ -1097,17 +1097,16 @@ bool gps_test_communication(gps_id_t id, uint32_t timeout_ms)
 }
 
 /**
- * @brief GPS UART baud rate 자동 감지 및 115200bps로 설정
+ * @brief F9P GPS를 115200bps로 설정
  *
- * F9P GPS 부팅 시 UART 통신 속도를 확인하고 필요시 115200bps로 변경
+ * STM32 UART는 38400bps로 시작 상태
+ * F9P UART1을 115200bps로 설정하고 STM32도 115200bps로 변경
  *
  * 동작 순서:
- * 1. 115200 bps로 데이터 수신 테스트
- * 2. 실패 시 38400 bps로 변경 후 테스트
- * 3. 38400에서 성공 시:
- *    - F9P 모듈을 115200 bps로 설정
- *    - STM32 UART를 115200 bps로 변경
- *    - 최종 통신 확인
+ * 1. 38400 bps에서 통신 확인
+ * 2. F9P 모듈을 115200 bps로 설정
+ * 3. STM32 UART를 115200 bps로 변경
+ * 4. 최종 통신 확인
  *
  * @param id GPS ID
  * @return true 성공, false 실패
@@ -1122,62 +1121,40 @@ bool gps_detect_and_set_baudrate(gps_id_t id)
   gps_instance_t *inst = &gps_instances[id];
 
   if (inst->type != GPS_TYPE_F9P) {
-    LOG_DEBUG("GPS[%d] Not F9P type, skipping baud rate detection", id);
+    LOG_DEBUG("GPS[%d] Not F9P type, skipping baud rate setup", id);
     return true;
   }
 
-  LOG_INFO("GPS[%d] === Baud Rate Detection Started ===", id);
+  LOG_INFO("GPS[%d] === F9P Baud Rate Setup to 115200 bps ===", id);
 
-  // 1단계: 115200 bps 테스트
-  LOG_INFO("GPS[%d] [1/5] Testing 115200 bps...", id);
-  if (gps_test_communication(id, 1000)) {
-    LOG_INFO("GPS[%d] ✓ Already at 115200 bps - detection complete", id);
-    return true;
-  }
-
-  LOG_INFO("GPS[%d] No data at 115200 bps", id);
-
-  // 2단계: STM32 UART를 38400 bps로 변경
-  LOG_INFO("GPS[%d] [2/5] Changing STM32 UART to 38400 bps...", id);
-  if (!gps_port_set_baudrate(id, 38400)) {
-    LOG_ERR("GPS[%d] Failed to change UART to 38400 bps", id);
-    return false;
-  }
-
-  vTaskDelay(pdMS_TO_TICKS(100));
-
-  // 3단계: 38400 bps에서 통신 확인
-  LOG_INFO("GPS[%d] [3/5] Testing 38400 bps...", id);
+  // 1단계: 38400 bps에서 통신 확인
+  LOG_INFO("GPS[%d] [1/4] Testing communication at 38400 bps...", id);
   if (!gps_test_communication(id, 1000)) {
-    LOG_ERR("GPS[%d] No data at 38400 bps either - GPS not responding", id);
-    // 115200으로 복원
-    gps_port_set_baudrate(id, 115200);
+    LOG_ERR("GPS[%d] No response at 38400 bps - GPS not responding", id);
     return false;
   }
 
   LOG_INFO("GPS[%d] ✓ GPS responding at 38400 bps", id);
 
-  // 4단계: F9P 모듈을 115200 bps로 설정
-  LOG_INFO("GPS[%d] [4/5] Setting F9P module to 115200 bps...", id);
+  // 2단계: F9P 모듈을 115200 bps로 설정
+  LOG_INFO("GPS[%d] [2/4] Setting F9P module to 115200 bps...", id);
 
   ubx_cfg_item_t baudrate_cfg = {
-    .key_id = 0x40520001, // CFG_BAUDRATE_UART1
+    .key_id = 0x40520001, // CFG-UART1-BAUDRATE
     .value = {0x00, 0xC2, 0x01, 0x00}, // 115200 (little-endian)
     .value_len = 4,
   };
 
   if (!ubx_send_valset_sync(&inst->gps, UBX_CFG_LAYER_RAM, &baudrate_cfg, 1, 2000)) {
     LOG_ERR("GPS[%d] Failed to configure F9P baud rate", id);
-    gps_port_set_baudrate(id, 115200);
     return false;
   }
 
   LOG_INFO("GPS[%d] ✓ F9P configured to 115200 bps", id);
-
   vTaskDelay(pdMS_TO_TICKS(200)); // F9P 설정 적용 대기
 
-  // 5단계: STM32 UART를 115200 bps로 변경
-  LOG_INFO("GPS[%d] [5/5] Changing STM32 UART to 115200 bps...", id);
+  // 3단계: STM32 UART를 115200 bps로 변경
+  LOG_INFO("GPS[%d] [3/4] Changing STM32 UART to 115200 bps...", id);
   if (!gps_port_set_baudrate(id, 115200)) {
     LOG_ERR("GPS[%d] Failed to change UART to 115200 bps", id);
     return false;
@@ -1185,13 +1162,13 @@ bool gps_detect_and_set_baudrate(gps_id_t id)
 
   vTaskDelay(pdMS_TO_TICKS(200));
 
-  // 6단계: 최종 통신 확인
-  LOG_INFO("GPS[%d] Verifying communication at 115200 bps...", id);
+  // 4단계: 최종 통신 확인
+  LOG_INFO("GPS[%d] [4/4] Verifying communication at 115200 bps...", id);
   if (!gps_test_communication(id, 1000)) {
     LOG_ERR("GPS[%d] Failed to communicate at 115200 bps after change", id);
     return false;
   }
 
-  LOG_INFO("GPS[%d] ✓✓✓ Successfully changed to 115200 bps! ✓✓✓", id);
+  LOG_INFO("GPS[%d] ✓✓✓ Successfully configured to 115200 bps! ✓✓✓", id);
   return true;
 }
