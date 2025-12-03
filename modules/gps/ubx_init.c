@@ -375,15 +375,15 @@ static void on_baudrate_change_complete(bool ack, void *user_data)
     {
         LOG_INFO("F9P baudrate change ACK received!");
 
-        // Delay for GPS to apply baudrate change
-        vTaskDelay(pdMS_TO_TICKS(100));
+        // Delay for GPS to apply baudrate change (ACK는 이전 보드레이트로 전송됨)
+        vTaskDelay(pdMS_TO_TICKS(500));
 
         // Change STM UART baudrate to 115200
         gps_uart_change_baudrate(ctx->gps_id, 115200);
         LOG_INFO("STM UART baudrate changed to 115200");
 
         // Delay for UART stabilization
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(200));
 
         // Execute initialization function based on type
         switch (ctx->init_type)
