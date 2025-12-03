@@ -88,7 +88,7 @@ static void gsm_at_cmd_process_task(void *pvParameters);
  * @param arg
  */
 void gsm_task_create(void *arg) {
-  xTaskCreate(gsm_process_task, "gsm", 2048, arg, tskIDLE_PRIORITY + 1, NULL);
+  xTaskCreate(gsm_process_task, "gsm", 1536, arg, tskIDLE_PRIORITY + 1, NULL);  // Reduced for memory optimization
 }
 
 /**
@@ -216,8 +216,8 @@ static void gsm_process_task(void *pvParameter) {
   lte_set_network_check_timer(network_timer);
 
   // AT 커맨드 처리 태스크 생성
-  xTaskCreate(gsm_at_cmd_process_task, "gsm_at_cmd", 2048, &gsm_handle,
-              tskIDLE_PRIORITY + 2, NULL);
+  xTaskCreate(gsm_at_cmd_process_task, "gsm_at_cmd", 1536, &gsm_handle,
+              tskIDLE_PRIORITY + 2, NULL);  // Reduced for memory optimization
 
   led_set_color(1, LED_COLOR_RED);
   led_set_state(1, true);

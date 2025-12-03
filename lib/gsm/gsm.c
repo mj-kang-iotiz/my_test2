@@ -981,7 +981,7 @@ void gsm_init(gsm_t *gsm, evt_handler_t handler, void *args) {
   gsm->urc_info_tbl = urc_info_handlers;
 
   gsm->ops = &stm32_hal_ops;
-  gsm->at_cmd_queue = xQueueCreate(15, sizeof(gsm_at_cmd_t));
+  gsm->at_cmd_queue = xQueueCreate(10, sizeof(gsm_at_cmd_t));  // Reduced for memory optimization
 
   // TCP 초기화
   gsm_tcp_init(gsm);
@@ -1242,11 +1242,11 @@ void gsm_tcp_init(gsm_t *gsm) {
   memset(&gsm->tcp.buffer, 0, sizeof(gsm_tcp_buffer_t));
 
   // TCP 이벤트 큐 생성
-  gsm->tcp.event_queue = xQueueCreate(15, sizeof(tcp_event_t));
+  gsm->tcp.event_queue = xQueueCreate(10, sizeof(tcp_event_t));  // Reduced for memory optimization
 
   // TCP 태스크 생성
-  xTaskCreate(gsm_tcp_task, "gsm_tcp", 2048, gsm, tskIDLE_PRIORITY + 3,
-              &gsm->tcp.task_handle);
+  xTaskCreate(gsm_tcp_task, "gsm_tcp", 1536, gsm, tskIDLE_PRIORITY + 3,
+              &gsm->tcp.task_handle);  // Reduced for memory optimization
 }
 
 gsm_tcp_socket_t *gsm_tcp_get_socket(gsm_t *gsm, uint8_t connect_id) {

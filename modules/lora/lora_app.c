@@ -15,7 +15,7 @@
 
 #include "log.h"
 
-#define LORA_CMD_QUEUE_SIZE 20  // Increased for multiple RTCM types with fragmentation
+#define LORA_CMD_QUEUE_SIZE 10  // Reduced for memory optimization
 #define LORA_AT_CMD_TIMEOUT_MS 2000
 #define LORA_INIT_MAX_RETRY 3
 #define LORA_INIT_TIMEOUT_MS 2000 // work_mode AT command timeout

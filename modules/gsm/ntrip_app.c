@@ -22,7 +22,7 @@
 #define NTRIP_MAX_TIMEOUT_COUNT 3    // 연속 타임아웃 최대 허용 횟수
 #define NTRIP_RECONNECT_DELAY_MS 500 // 재연결 대기 시간 (ms)
 
-#define NTRIP_GGA_QUEUE_SIZE 15 // GGA 전송 큐 크기 (재연결 중 버퍼링)
+#define NTRIP_GGA_QUEUE_SIZE 10 // GGA 전송 큐 크기 (reduced for memory optimization)
 #define NTRIP_GGA_MAX_LEN 100   // GGA 문장 최대 길이
 #define NTRIP_GGA_SEND_BATCH 5  // 한 루프당 최대 GGA 전송 개수 (GSM 버퍼 보호)
 
@@ -546,8 +546,8 @@ static void ntrip_tcp_recv_task(void *pvParameter)
 
 void ntrip_task_create(gsm_t *gsm)
 {
-  xTaskCreate(ntrip_tcp_recv_task, "ntrip_recv", 2048, gsm,
-              tskIDLE_PRIORITY + 3, NULL);
+  xTaskCreate(ntrip_tcp_recv_task, "ntrip_recv", 1536, gsm,
+              tskIDLE_PRIORITY + 3, NULL);  // Reduced for memory optimization
 }
 
 int ntrip_send_gga_data(const char *data, uint8_t len)
