@@ -787,6 +787,12 @@ static void ubx_init_async_callback(bool ack, void *user_data)
 
     ctx->retry_count++;
 
+    printf("[UBX_INIT] NAK received at step %d (key_id: 0x%08lx), retry %d/%d\n",
+           (int)ctx->current_step,
+           (unsigned long)ctx->configs[ctx->current_step].key_id,
+           (int)ctx->retry_count,
+           (int)ctx->max_retries);
+
     if (ctx->retry_count >= ctx->max_retries)
     {
 
@@ -811,6 +817,10 @@ static void ubx_init_async_callback(bool ack, void *user_data)
   // ACK 받음 - 다음 단계로
 
   ctx->retry_count = 0; // 재시도 카운터 리셋
+
+  printf("[UBX_INIT] ACK received at step %d (key_id: 0x%08lx)\n",
+         (int)ctx->current_step,
+         (unsigned long)ctx->configs[ctx->current_step].key_id);
 
   ctx->current_step++;
 
