@@ -1,6 +1,7 @@
 #include "gps_ubx.h"
 #include "gps.h"
 #include "gps_parse.h"
+#include "gps_port.h"
 #include <string.h>
 
 #define UBX_SYNC_1 0xB5
@@ -811,6 +812,13 @@ static void ubx_init_async_callback(bool ack, void *user_data)
   // ACK 받음 - 다음 단계로
 
   ctx->retry_count = 0; // 재시도 카운터 리셋
+
+  // 첫 번째 설정이 CFG_BAUDRATE_UART1 (0x40520001U)이면 STM32 UART baud rate 변경
+  if (ctx->current_step == 0 && ctx->configs[0].key_id == 0x40520001U)
+  {
+    // UART2 baud rate를 115200으로 변경
+    gps_uart2_set_baudrate(115200);
+  }
 
   ctx->current_step++;
 

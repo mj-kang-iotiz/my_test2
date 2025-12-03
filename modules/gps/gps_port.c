@@ -131,6 +131,26 @@ int gps_rtk_uart2_init(void)
 }
 
 /**
+ * @brief UART2 baud rate 변경
+ *
+ * @param[in] baudrate 새로운 baud rate
+ */
+void gps_uart2_set_baudrate(uint32_t baudrate)
+{
+  // USART 비활성화
+  LL_USART_Disable(USART2);
+
+  // Baud rate 변경
+  LL_USART_SetBaudRate(USART2,
+                       SystemCoreClock / 4,  // APB1 clock (PCLK1)
+                       LL_USART_OVERSAMPLING_16,
+                       baudrate);
+
+  // USART 재활성화
+  LL_USART_Enable(USART2);
+}
+
+/**
  * @brief GPS 통신 시작
  *
  */

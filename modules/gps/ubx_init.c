@@ -37,6 +37,12 @@
 
 
 static const ubx_cfg_item_t ublox_base_configs[] = {
+    /* UART BAUD RATE 설정 */
+    {
+        .key_id = CFG_BAUDRATE_UART1,
+        .value = {0x00, 0xC2, 0x01, 0x00},
+        .value_len = 4,
+    },
 
     /* NMEA OUTPUT 설정 */
     {
