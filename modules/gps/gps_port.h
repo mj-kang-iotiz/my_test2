@@ -12,6 +12,6 @@ void gps_port_stop(gps_t *gps_handle);
 uint32_t gps_port_get_rx_pos(gps_id_t id);
 char *gps_port_get_recv_buf(gps_id_t id);
 void gps_port_set_queue(gps_id_t id, QueueHandle_t queue);
-void gps_uart2_set_baudrate(uint32_t baudrate);
+void gps_uart_change_baudrate(gps_id_t id, uint32_t baudrate);
 
 #endif

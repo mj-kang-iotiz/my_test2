@@ -816,8 +816,14 @@ static void ubx_init_async_callback(bool ack, void *user_data)
   // 첫 번째 설정이 CFG_BAUDRATE_UART1 (0x40520001U)이면 STM32 UART baud rate 변경
   if (ctx->current_step == 0 && ctx->configs[0].key_id == 0x40520001U)
   {
-    // UART2 baud rate를 115200으로 변경
-    gps_uart2_set_baudrate(115200);
+    // GPS 모듈의 baud rate 변경 완료, 안정화 대기
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    // STM32 UART baud rate를 115200으로 변경
+    gps_uart_change_baudrate(gps->id, 115200);
+
+    // UART 안정화 대기
+    vTaskDelay(pdMS_TO_TICKS(100));
   }
 
   ctx->current_step++;

@@ -2,6 +2,7 @@
 #define GPS_H
 
 #include "FreeRTOS.h"
+#include "board_config.h"
 #include "gps_types.h"
 #include "gps_nmea.h"
 #include "gps_ubx.h"
@@ -37,6 +38,7 @@ typedef struct gps_s {
   /* state */
   gps_procotol_t protocol;
   gps_init_state_t init_state;
+  gps_id_t id;
 
   /* os variable */
   SemaphoreHandle_t mutex;

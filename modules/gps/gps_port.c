@@ -131,23 +131,63 @@ int gps_rtk_uart2_init(void)
 }
 
 /**
- * @brief UART2 baud rate 변경
+ * @brief GPS UART baud rate 변경
  *
+ * @param[in] id GPS ID
  * @param[in] baudrate 새로운 baud rate
  */
-void gps_uart2_set_baudrate(uint32_t baudrate)
+void gps_uart_change_baudrate(gps_id_t id, uint32_t baudrate)
 {
-  // USART 비활성화
-  LL_USART_Disable(USART2);
+  if (id >= GPS_CNT)
+  {
+    LOG_ERR("Invalid GPS ID: %d", id);
+    return;
+  }
 
-  // Baud rate 변경
-  LL_USART_SetBaudRate(USART2,
-                       SystemCoreClock / 4,  // APB1 clock (PCLK1)
-                       LL_USART_OVERSAMPLING_16,
-                       baudrate);
+  LOG_INFO("Changing GPS[%d] UART baudrate to %d bps", id, baudrate);
 
-  // USART 재활성화
-  LL_USART_Enable(USART2);
+  if (id == GPS_ID_BASE)
+  {
+    LL_DMA_DisableStream(DMA1, LL_DMA_STREAM_5);
+    while (LL_DMA_IsEnabledStream(DMA1, LL_DMA_STREAM_5));
+    LL_USART_Disable(USART2);
+
+    LL_RCC_ClocksTypeDef clocks;
+    LL_RCC_GetSystemClocksFreq(&clocks);
+
+    LL_USART_SetBaudRate(USART2, clocks.PCLK1_Frequency, LL_USART_OVERSAMPLING_16, baudrate);
+
+    LL_DMA_ClearFlag_TC5(DMA1);
+    LL_DMA_ClearFlag_HT5(DMA1);
+    LL_DMA_ClearFlag_TE5(DMA1);
+    LL_USART_ClearFlag_IDLE(USART2);
+    gps_uart2_comm_start();
+
+    LOG_INFO("USART2 baudrate changed to %d bps", baudrate);
+  }
+  else if (id == GPS_ID_ROVER)
+  {
+    LL_DMA_DisableStream(DMA1, LL_DMA_STREAM_2);
+    while (LL_DMA_IsEnabledStream(DMA1, LL_DMA_STREAM_2));
+    LL_USART_Disable(UART4);
+
+    LL_RCC_ClocksTypeDef clocks;
+    LL_RCC_GetSystemClocksFreq(&clocks);
+
+    LL_USART_SetBaudRate(UART4, clocks.PCLK1_Frequency, LL_USART_OVERSAMPLING_16, baudrate);
+
+    LL_DMA_ClearFlag_TC2(DMA1);
+    LL_DMA_ClearFlag_HT2(DMA1);
+    LL_DMA_ClearFlag_TE2(DMA1);
+    LL_USART_ClearFlag_IDLE(UART4);
+    gps_uart4_comm_start();
+
+    LOG_INFO("UART4 baudrate changed to %d bps", baudrate);
+  }
+  else
+  {
+    LOG_ERR("Unknown GPS ID: %d", id);
+  }
 }
 
 /**
@@ -279,6 +319,8 @@ int gps_port_init_instance(gps_t *gps_handle, gps_id_t id, gps_type_t type)
 {
   if (id >= GPS_ID_MAX)
     return -1;
+
+  gps_handle->id = id;
 
   const board_config_t *config = board_get_config();
 
