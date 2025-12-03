@@ -595,24 +595,23 @@ static void gps_process_task(void *pvParameter) {
 
   vTaskDelay(pdMS_TO_TICKS(2000));
 
-  gps_factory_reset_async(id, callback_function, NULL);
-
 #if defined(BOARD_TYPE_BASE_UNICORE)
+  gps_factory_reset_async(id, callback_function, NULL);
   gps_init_um982_base_async(id, overall_init_complete);
 #elif defined(BOARD_TYPE_ROVER_UNICORE)
+  gps_factory_reset_async(id, callback_function, NULL);
   gps_init_um982_rover_async(id, overall_init_complete);
 #elif defined(BOARD_TYPE_BASE_UBLOX)
-  // F9P GPS: 보드레이트를 115200bps로 변경 후 초기화
+  // F9P GPS: factory reset 건너뛰고 바로 보드레이트 변경 후 초기화
   ubx_change_baudrate_and_init(&inst->gps, 115200, id, UBX_INIT_TYPE_BASE);
 #elif defined(BOARD_TYPE_ROVER_UBLOX)
+  // F9P GPS: factory reset 건너뛰고 바로 보드레이트 변경 후 초기화
   if(id == GPS_ID_BASE)
   {
-    // F9P GPS: 보드레이트를 115200bps로 변경 후 moving base 초기화
     ubx_change_baudrate_and_init(&inst->gps, 115200, id, UBX_INIT_TYPE_MOVING_BASE);
   }
   else if(id == GPS_ID_ROVER)
   {
-    // F9P GPS: 보드레이트를 115200bps로 변경 후 rover 초기화
     ubx_change_baudrate_and_init(&inst->gps, 115200, id, UBX_INIT_TYPE_ROVER);
   }
 #endif
