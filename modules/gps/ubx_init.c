@@ -40,6 +40,13 @@
 
 static const ubx_cfg_item_t ublox_base_configs[] = {
 
+    /* UART2 보드레이트 설정 (F9P-to-F9P RTCM 통신) */
+    {
+        .key_id = CFG_BAUDRATE_UART2,
+        .value = {0x00, 0xC2, 0x01, 0x00},  // 115200 (little-endian)
+        .value_len = 4,
+    },
+
     /* NMEA OUTPUT 설정 */
     {
         .key_id = CFG_GLL_UART1,
@@ -111,6 +118,14 @@ static const ubx_cfg_item_t ublox_base_configs[] = {
 };
 
 static const ubx_cfg_item_t ublox_rover_configs[] = {
+
+    /* UART2 보드레이트 설정 (F9P-to-F9P RTCM 통신) */
+    {
+        .key_id = CFG_BAUDRATE_UART2,
+        .value = {0x00, 0xC2, 0x01, 0x00},  // 115200 (little-endian)
+        .value_len = 4,
+    },
+
     /* NMEA OUTPUT 설정 */
     {
         .key_id = CFG_GLL_UART1,
@@ -166,6 +181,14 @@ static const ubx_cfg_item_t ublox_rover_configs[] = {
 };
 
 static const ubx_cfg_item_t ublox_moving_base_configs[] = {
+
+    /* UART2 보드레이트 설정 (F9P-to-F9P RTCM 통신) */
+    {
+        .key_id = CFG_BAUDRATE_UART2,
+        .value = {0x00, 0xC2, 0x01, 0x00},  // 115200 (little-endian)
+        .value_len = 4,
+    },
+
     /* nmea 설정 */
     {
         .key_id = CFG_GLL_UART1,

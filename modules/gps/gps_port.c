@@ -152,63 +152,10 @@ int gps_rtk_uart2_init(void)
   {
     // F9P UART1 보드레이트를 115200으로 변경 (DMA 활성화 전)
     LOG_INFO("Changing Base F9P UART1 baudrate to 115200...");
-    if (f9p_init_uart1_baudrate_115200()) {
-      // UART1 변경 성공 시, UART2도 115200으로 변경
-      // F9P UART2는 F9P 모듈끼리 RTCM 통신용
-      LOG_INFO("Changing F9P UART2 baudrate to 115200 (for F9P-to-F9P)...");
+    f9p_init_uart1_baudrate_115200();
 
-      // UART1을 통해 F9P UART2 설정
-      uint8_t cfg_prt[20] = {0};
-      cfg_prt[0] = 2;  // portID = UART2
-
-      // mode: 8N1
-      uint32_t mode = 0x000008D0;
-      cfg_prt[4] = (mode >> 0) & 0xFF;
-      cfg_prt[5] = (mode >> 8) & 0xFF;
-      cfg_prt[6] = (mode >> 16) & 0xFF;
-      cfg_prt[7] = (mode >> 24) & 0xFF;
-
-      // baudRate = 115200
-      uint32_t baud = 115200;
-      cfg_prt[8]  = (baud >> 0) & 0xFF;
-      cfg_prt[9]  = (baud >> 8) & 0xFF;
-      cfg_prt[10] = (baud >> 16) & 0xFF;
-      cfg_prt[11] = (baud >> 24) & 0xFF;
-
-      // inProtoMask: RTCM3 (0x04)
-      cfg_prt[12] = 0x04;
-      cfg_prt[13] = 0x00;
-
-      // outProtoMask: RTCM3 (0x04)
-      cfg_prt[14] = 0x04;
-      cfg_prt[15] = 0x00;
-
-      // UBX 메시지 전송 (간단 버전)
-      uint8_t msg[28];
-      msg[0] = 0xB5; msg[1] = 0x62;  // Sync
-      msg[2] = 0x06; msg[3] = 0x00;  // Class CFG, ID PRT
-      msg[4] = 20; msg[5] = 0;       // Length
-      memcpy(&msg[6], cfg_prt, 20);
-
-      // Checksum 계산
-      uint8_t ck_a = 0, ck_b = 0;
-      for (int i = 2; i < 26; i++) {
-        ck_a += msg[i];
-        ck_b += ck_a;
-      }
-      msg[26] = ck_a;
-      msg[27] = ck_b;
-
-      // 전송
-      for (int i = 0; i < 28; i++) {
-        while (!LL_USART_IsActiveFlag_TXE(USART2));
-        LL_USART_TransmitData8(USART2, msg[i]);
-      }
-      while (!LL_USART_IsActiveFlag_TC(USART2));
-
-      HAL_Delay(200);
-      LOG_INFO("F9P UART2 baudrate change command sent");
-    }
+    // F9P UART2 보드레이트는 ubx_init.c의 ublox_base_configs에서
+    // CFG_BAUDRATE_UART2로 설정됨 (UBX-CFG-VALSET 방식)
   }
 #endif
 
@@ -513,63 +460,10 @@ int gps_rtk_uart4_init(void)
   {
     // Rover F9P UART1 보드레이트를 115200으로 변경 (DMA 활성화 전)
     LOG_INFO("Changing Rover F9P UART1 baudrate to 115200...");
-    if (f9p_init_rover_uart1_baudrate_115200()) {
-      // UART1 변경 성공 시, UART2도 115200으로 변경
-      // F9P UART2는 F9P 모듈끼리 RTCM 통신용
-      LOG_INFO("Changing Rover F9P UART2 baudrate to 115200 (for F9P-to-F9P)...");
+    f9p_init_rover_uart1_baudrate_115200();
 
-      // UART1을 통해 F9P UART2 설정
-      uint8_t cfg_prt[20] = {0};
-      cfg_prt[0] = 2;  // portID = UART2
-
-      // mode: 8N1
-      uint32_t mode = 0x000008D0;
-      cfg_prt[4] = (mode >> 0) & 0xFF;
-      cfg_prt[5] = (mode >> 8) & 0xFF;
-      cfg_prt[6] = (mode >> 16) & 0xFF;
-      cfg_prt[7] = (mode >> 24) & 0xFF;
-
-      // baudRate = 115200
-      uint32_t baud = 115200;
-      cfg_prt[8]  = (baud >> 0) & 0xFF;
-      cfg_prt[9]  = (baud >> 8) & 0xFF;
-      cfg_prt[10] = (baud >> 16) & 0xFF;
-      cfg_prt[11] = (baud >> 24) & 0xFF;
-
-      // inProtoMask: RTCM3 (0x04)
-      cfg_prt[12] = 0x04;
-      cfg_prt[13] = 0x00;
-
-      // outProtoMask: RTCM3 (0x04)
-      cfg_prt[14] = 0x04;
-      cfg_prt[15] = 0x00;
-
-      // UBX 메시지 전송 (간단 버전)
-      uint8_t msg[28];
-      msg[0] = 0xB5; msg[1] = 0x62;  // Sync
-      msg[2] = 0x06; msg[3] = 0x00;  // Class CFG, ID PRT
-      msg[4] = 20; msg[5] = 0;       // Length
-      memcpy(&msg[6], cfg_prt, 20);
-
-      // Checksum 계산
-      uint8_t ck_a = 0, ck_b = 0;
-      for (int i = 2; i < 26; i++) {
-        ck_a += msg[i];
-        ck_b += ck_a;
-      }
-      msg[26] = ck_a;
-      msg[27] = ck_b;
-
-      // 전송
-      for (int i = 0; i < 28; i++) {
-        while (!LL_USART_IsActiveFlag_TXE(UART4));
-        LL_USART_TransmitData8(UART4, msg[i]);
-      }
-      while (!LL_USART_IsActiveFlag_TC(UART4));
-
-      HAL_Delay(200);
-      LOG_INFO("Rover F9P UART2 baudrate change command sent");
-    }
+    // F9P UART2 보드레이트는 ubx_init.c의 ublox_rover_configs에서
+    // CFG_BAUDRATE_UART2로 설정됨 (UBX-CFG-VALSET 방식)
   }
 #endif
 

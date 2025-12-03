@@ -122,7 +122,7 @@ if (f9p_poll_uart2_baudrate(gps_rover, &baudrate)) {
    - 115200 bps에서 Poll 재시도
    - 성공 시 완료, 실패 시 38400으로 복원
 
-## 주요 변경사항 (v2.1)
+## 주요 변경사항 (v2.2)
 
 ### ✅ 해결된 문제들
 
@@ -136,13 +136,27 @@ if (f9p_poll_uart2_baudrate(gps_rover, &baudrate)) {
 
 3. **F9P UART2 지원 추가** ⭐:
    - F9P UART2는 STM32에 연결되지 않고 F9P 모듈끼리 RTCM 통신용
-   - UART1을 통해 UBX-CFG-PRT 명령으로 UART2 보드레이트 설정
+   - ~~UART1을 통해 UBX-CFG-PRT 명령으로 UART2 보드레이트 설정~~ (v2.1)
+   - **`ubx_init.c`의 설정 배열에 `CFG_BAUDRATE_UART2` 추가** (v2.2) ⭐⭐
    - Base와 Rover 모두 UART2를 115200으로 자동 설정
-   - **UBX-CFG-VALSET 방식이 아니라 UBX-CFG-PRT 방식 사용**
+   - **UBX-CFG-VALSET 방식 사용** - F9P가 자동으로 인식하고 적용
 
 4. **검증 강화**:
    - 변경 후 실제 보드레이트 확인
    - 실패 시 자동 롤백 (38400으로 복원)
+
+### 🎯 v2.2의 장점
+
+**코드 간결화:**
+- `gps_port.c`의 인라인 UBX 메시지 생성 코드 제거
+- 기존 UBX 초기화 시스템 활용 (비동기 처리)
+- Base, Rover, Moving Base 설정에 일관성 있게 적용
+
+**동작 순서:**
+1. `gps_rtk_uart2_init()` → UART1을 115200으로 변경
+2. `gps_uart2_comm_start()` → DMA 활성화
+3. `ubx_base_init()` 호출 → **UART2를 115200으로 변경**
+4. Base ↔ Rover RTCM 통신 시작 (115200 bps)
 
 ## 주의사항
 
