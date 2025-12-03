@@ -430,7 +430,7 @@ bool ubx_change_baudrate_and_init(gps_t* gps, uint32_t baudrate, gps_id_t gps_id
     baudrate_cfg.value[2] = (baudrate >> 16) & 0xFF;
     baudrate_cfg.value[3] = (baudrate >> 24) & 0xFF;
 
-    // Send baudrate change command (without waiting for ACK)
+    // Send baudrate change command
     if (!ubx_send_valset(gps, UBX_CFG_LAYER_RAM, &baudrate_cfg, 1))
     {
         LOG_ERR("Failed to send baudrate change command");
@@ -439,16 +439,12 @@ bool ubx_change_baudrate_and_init(gps_t* gps, uint32_t baudrate, gps_id_t gps_id
 
     LOG_INFO("Baudrate change command sent");
 
-    // F9P가 명령을 받고 즉시 보드레이트를 변경하므로
-    // 짧은 딜레이 후 즉시 STM UART 보드레이트 변경
-    vTaskDelay(pdMS_TO_TICKS(100));
+    // 간단한 busy-wait 딜레이 (F9P가 명령 처리할 시간)
+    for(volatile uint32_t i = 0; i < 1000000; i++);
 
-    // Change STM UART baudrate to 115200
+    // Change STM UART baudrate
     gps_uart_change_baudrate(gps_id, baudrate);
     LOG_INFO("STM UART baudrate changed to %d", baudrate);
-
-    // Delay for UART stabilization
-    vTaskDelay(pdMS_TO_TICKS(200));
 
     // Execute initialization function based on type
     switch (init_type)
