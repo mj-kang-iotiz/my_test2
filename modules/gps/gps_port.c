@@ -1,5 +1,6 @@
 #include "gps_port.h"
 #include "board_config.h"
+#include "f9p_baudrate_config.h"
 #include "stm32f4xx_hal.h"
 #include "stm32f4xx_ll_bus.h"
 #include "stm32f4xx_ll_cortex.h"
@@ -16,6 +17,9 @@
 #endif
 
 #include "log.h"
+
+// F9P 보드레이트 변경 활성화 플래그
+#define F9P_AUTO_BAUDRATE_CHANGE 1  // 1: 자동 변경, 0: 변경 안함
 
 static char gps_recv_buf[GPS_CNT][2048];
 static QueueHandle_t gps_queues[GPS_CNT] = {NULL};
@@ -91,7 +95,13 @@ static void gps_uart2_init(void)
   const board_config_t *config = board_get_config();
   if(config->board == BOARD_TYPE_ROVER_F9P || config->board == BOARD_TYPE_BASE_F9P)
   {
+#if F9P_AUTO_BAUDRATE_CHANGE
+    // F9P 자동 보드레이트 변경이 활성화된 경우 38400으로 시작
     USART_InitStruct.BaudRate = 38400;
+#else
+    // 수동으로 F9P를 115200으로 설정한 경우
+    USART_InitStruct.BaudRate = 115200;
+#endif
   }
   else
   {
@@ -134,6 +144,16 @@ int gps_rtk_uart2_init(void)
 {
   gps_uart2_dma_init();
   gps_uart2_init();
+
+#if F9P_AUTO_BAUDRATE_CHANGE
+  const board_config_t *config = board_get_config();
+  if(config->board == BOARD_TYPE_ROVER_F9P || config->board == BOARD_TYPE_BASE_F9P)
+  {
+    // F9P 보드일 경우 보드레이트를 115200으로 변경 (DMA 활성화 전)
+    LOG_INFO("Changing F9P UART1 baudrate to 115200...");
+    f9p_init_uart1_baudrate_115200();
+  }
+#endif
 
   return 0;
 }
@@ -387,7 +407,13 @@ static void gps_uart4_init(void)
   const board_config_t *config = board_get_config();
   if(config->board == BOARD_TYPE_ROVER_F9P || config->board == BOARD_TYPE_BASE_F9P)
   {
+#if F9P_AUTO_BAUDRATE_CHANGE
+    // F9P 자동 보드레이트 변경이 활성화된 경우 38400으로 시작
     USART_InitStruct.BaudRate = 38400;
+#else
+    // 수동으로 F9P를 115200으로 설정한 경우
+    USART_InitStruct.BaudRate = 115200;
+#endif
   }
   else
   {
@@ -423,6 +449,16 @@ int gps_rtk_uart4_init(void)
 {
   gps_uart4_dma_init();
   gps_uart4_init();
+
+#if F9P_AUTO_BAUDRATE_CHANGE
+  const board_config_t *config = board_get_config();
+  if(config->board == BOARD_TYPE_ROVER_F9P || config->board == BOARD_TYPE_BASE_F9P)
+  {
+    // F9P 보드일 경우 보드레이트를 115200으로 변경 (DMA 활성화 전)
+    LOG_INFO("Changing F9P UART2 baudrate to 115200...");
+    f9p_init_uart2_baudrate_115200();
+  }
+#endif
 
   return 0;
 }

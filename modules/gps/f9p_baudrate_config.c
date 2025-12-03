@@ -272,13 +272,67 @@ static void change_stm32_baudrate_ll(USART_TypeDef *USARTx, uint32_t new_baudrat
 }
 
 /**
+ * DMA/인터럽트 비활성화 (보드레이트 변경 전)
+ */
+static void uart_disable_dma_irq(USART_TypeDef *USARTx, uint32_t dma_stream)
+{
+    // UART 인터럽트 비활성화
+    LL_USART_DisableIT_IDLE(USARTx);
+    LL_USART_DisableIT_PE(USARTx);
+    LL_USART_DisableIT_ERROR(USARTx);
+
+    // DMA 비활성화
+    LL_USART_DisableDMAReq_RX(USARTx);
+    LL_DMA_DisableStream(DMA1, dma_stream);
+
+    // DMA 완전히 중지될 때까지 대기
+    while (LL_DMA_IsEnabledStream(DMA1, dma_stream));
+}
+
+/**
+ * DMA/인터럽트 재활성화 (보드레이트 변경 후)
+ */
+static void uart_enable_dma_irq(USART_TypeDef *USARTx, uint32_t dma_stream,
+                                uint32_t buffer_addr, uint32_t buffer_size)
+{
+    // DMA 재설정
+    LL_DMA_SetPeriphAddress(DMA1, dma_stream, (uint32_t)&USARTx->DR);
+    LL_DMA_SetMemoryAddress(DMA1, dma_stream, buffer_addr);
+    LL_DMA_SetDataLength(DMA1, dma_stream, buffer_size);
+
+    // DMA 인터럽트 활성화
+    LL_DMA_EnableIT_TE(DMA1, dma_stream);
+    LL_DMA_EnableIT_FE(DMA1, dma_stream);
+    LL_DMA_EnableIT_DME(DMA1, dma_stream);
+
+    // UART 인터럽트 활성화
+    LL_USART_EnableIT_IDLE(USARTx);
+    LL_USART_EnableIT_PE(USARTx);
+    LL_USART_EnableIT_ERROR(USARTx);
+
+    // DMA 활성화
+    LL_USART_EnableDMAReq_RX(USARTx);
+    LL_DMA_EnableStream(DMA1, dma_stream);
+}
+
+/**
  * F9P UART1 보드레이트 변경 및 검증 (STM32 UART2 사용)
+ * DMA가 활성화된 상태에서 호출 시 자동으로 비활성화/재활성화
  */
 bool f9p_change_uart1_baudrate_to_115200(gps_t *gps)
 {
     uint32_t current_baud = 0;
+    extern char gps_recv_buf[2][2048];  // gps_port.c에서 extern
+    bool dma_was_active = LL_DMA_IsEnabledStream(DMA1, LL_DMA_STREAM_5);
 
     LOG_INFO("=== F9P UART1 Baudrate Change Test (STM32 UART2) ===");
+
+    // DMA 비활성화 (polling 통신을 위해)
+    if (dma_was_active) {
+        LOG_DEBUG("Disabling DMA for baudrate change...");
+        uart_disable_dma_irq(USART2, LL_DMA_STREAM_5);
+        HAL_Delay(50);
+    }
 
     // Step 1: 현재 설정 확인 (38400)
     LOG_INFO("[1] Polling at 38400...");
@@ -302,10 +356,11 @@ bool f9p_change_uart1_baudrate_to_115200(gps_t *gps)
 
     // Step 4: 새 보드레이트에서 확인
     LOG_INFO("[4] Verifying at 115200...");
+    bool success = false;
     if (f9p_poll_uart_config(USART2, UBX_PORT_UART1, &current_baud)) {
         if (current_baud == 115200) {
             LOG_INFO("    SUCCESS! Now: %lu bps", current_baud);
-            return true;
+            success = true;
         } else {
             LOG_ERR("    Unexpected baudrate: %lu bps", current_baud);
         }
@@ -316,20 +371,36 @@ bool f9p_change_uart1_baudrate_to_115200(gps_t *gps)
         if (f9p_poll_uart_config(USART2, UBX_PORT_UART1, &current_baud)) {
             LOG_INFO("    Reverted back to %lu bps", current_baud);
         }
-        return false;
     }
 
-    return false;
+    // DMA 재활성화
+    if (dma_was_active) {
+        LOG_DEBUG("Re-enabling DMA...");
+        uart_enable_dma_irq(USART2, LL_DMA_STREAM_5,
+                            (uint32_t)&gps_recv_buf[0], 2048);
+    }
+
+    return success;
 }
 
 /**
  * F9P UART2 보드레이트 변경 및 검증 (STM32 UART4 사용)
+ * DMA가 활성화된 상태에서 호출 시 자동으로 비활성화/재활성화
  */
 bool f9p_change_uart2_baudrate_to_115200(gps_t *gps)
 {
     uint32_t current_baud = 0;
+    extern char gps_recv_buf[2][2048];  // gps_port.c에서 extern
+    bool dma_was_active = LL_DMA_IsEnabledStream(DMA1, LL_DMA_STREAM_2);
 
     LOG_INFO("=== F9P UART2 Baudrate Change Test (STM32 UART4) ===");
+
+    // DMA 비활성화 (polling 통신을 위해)
+    if (dma_was_active) {
+        LOG_DEBUG("Disabling DMA for baudrate change...");
+        uart_disable_dma_irq(UART4, LL_DMA_STREAM_2);
+        HAL_Delay(50);
+    }
 
     // Step 1: 현재 설정 확인 (38400)
     LOG_INFO("[1] Polling at 38400...");
@@ -353,10 +424,11 @@ bool f9p_change_uart2_baudrate_to_115200(gps_t *gps)
 
     // Step 4: 새 보드레이트에서 확인
     LOG_INFO("[4] Verifying at 115200...");
+    bool success = false;
     if (f9p_poll_uart_config(UART4, UBX_PORT_UART2, &current_baud)) {
         if (current_baud == 115200) {
             LOG_INFO("    SUCCESS! Now: %lu bps", current_baud);
-            return true;
+            success = true;
         } else {
             LOG_ERR("    Unexpected baudrate: %lu bps", current_baud);
         }
@@ -367,10 +439,16 @@ bool f9p_change_uart2_baudrate_to_115200(gps_t *gps)
         if (f9p_poll_uart_config(UART4, UBX_PORT_UART2, &current_baud)) {
             LOG_INFO("    Reverted back to %lu bps", current_baud);
         }
-        return false;
     }
 
-    return false;
+    // DMA 재활성화
+    if (dma_was_active) {
+        LOG_DEBUG("Re-enabling DMA...");
+        uart_enable_dma_irq(UART4, LL_DMA_STREAM_2,
+                            (uint32_t)&gps_recv_buf[1], 2048);
+    }
+
+    return success;
 }
 
 /**
@@ -387,4 +465,104 @@ bool f9p_poll_uart1_baudrate(gps_t *gps, uint32_t *baudrate)
 bool f9p_poll_uart2_baudrate(gps_t *gps, uint32_t *baudrate)
 {
     return f9p_poll_uart_config(UART4, UBX_PORT_UART2, baudrate);
+}
+
+/**
+ * F9P UART1 보드레이트 변경 (초기화 시점용 - DMA 활성화 전)
+ * gps_uart2_init() 후, gps_uart2_comm_start() 전에 호출
+ */
+bool f9p_init_uart1_baudrate_115200(void)
+{
+    uint32_t current_baud = 0;
+
+    LOG_INFO("=== F9P UART1 Init Baudrate to 115200 ===");
+
+    // Step 1: 현재 설정 확인 (38400)
+    LOG_INFO("[1] Current baudrate check...");
+    if (f9p_poll_uart_config(USART2, UBX_PORT_UART1, &current_baud)) {
+        LOG_INFO("    Current: %lu bps", current_baud);
+        if (current_baud == 115200) {
+            LOG_INFO("    Already 115200, skipping...");
+            return true;
+        }
+    } else {
+        LOG_WARN("    No response at 38400");
+    }
+
+    // Step 2: F9P UART1을 115200으로 변경 요청
+    LOG_INFO("[2] Setting F9P UART1 to 115200...");
+    f9p_set_uart_baudrate(USART2, UBX_PORT_UART1, 115200);
+    HAL_Delay(100);
+
+    // Step 3: STM32 UART2도 115200으로 변경
+    LOG_INFO("[3] Switching STM32 UART2 to 115200...");
+    change_stm32_baudrate_ll(USART2, 115200);
+    HAL_Delay(200);
+
+    // Step 4: 검증
+    LOG_INFO("[4] Verifying...");
+    if (f9p_poll_uart_config(USART2, UBX_PORT_UART1, &current_baud)) {
+        if (current_baud == 115200) {
+            LOG_INFO("    SUCCESS! Baudrate: %lu bps", current_baud);
+            return true;
+        } else {
+            LOG_ERR("    Wrong baudrate: %lu bps", current_baud);
+        }
+    } else {
+        LOG_ERR("    Verification failed, reverting...");
+        change_stm32_baudrate_ll(USART2, 38400);
+        HAL_Delay(100);
+    }
+
+    return false;
+}
+
+/**
+ * F9P UART2 보드레이트 변경 (초기화 시점용 - DMA 활성화 전)
+ * gps_uart4_init() 후, gps_uart4_comm_start() 전에 호출
+ */
+bool f9p_init_uart2_baudrate_115200(void)
+{
+    uint32_t current_baud = 0;
+
+    LOG_INFO("=== F9P UART2 Init Baudrate to 115200 ===");
+
+    // Step 1: 현재 설정 확인 (38400)
+    LOG_INFO("[1] Current baudrate check...");
+    if (f9p_poll_uart_config(UART4, UBX_PORT_UART2, &current_baud)) {
+        LOG_INFO("    Current: %lu bps", current_baud);
+        if (current_baud == 115200) {
+            LOG_INFO("    Already 115200, skipping...");
+            return true;
+        }
+    } else {
+        LOG_WARN("    No response at 38400");
+    }
+
+    // Step 2: F9P UART2를 115200으로 변경 요청
+    LOG_INFO("[2] Setting F9P UART2 to 115200...");
+    f9p_set_uart_baudrate(UART4, UBX_PORT_UART2, 115200);
+    HAL_Delay(100);
+
+    // Step 3: STM32 UART4도 115200으로 변경
+    LOG_INFO("[3] Switching STM32 UART4 to 115200...");
+    change_stm32_baudrate_ll(UART4, 115200);
+    HAL_Delay(200);
+
+    // Step 4: 검증
+    LOG_INFO("[4] Verifying...");
+    if (f9p_poll_uart_config(UART4, UBX_PORT_UART2, &current_baud)) {
+        if (current_baud == 115200) {
+            LOG_INFO("    SUCCESS! Baudrate: %lu bps", current_baud);
+            return true;
+        } else {
+            LOG_ERR("    Wrong baudrate: %lu bps", current_baud);
+        }
+    } else {
+        LOG_ERR("    Verification failed, reverting...");
+        change_stm32_baudrate_ll(UART4, 38400);
+        HAL_Delay(100);
+    }
+
+    return false;
 }
