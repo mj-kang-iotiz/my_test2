@@ -1145,8 +1145,59 @@ bool gps_detect_and_set_baudrate(gps_id_t id)
     .value_len = 4,
   };
 
-  if (!ubx_send_valset_sync(&inst->gps, UBX_CFG_LAYER_RAM, &baudrate_cfg, 1, 2000)) {
-    LOG_ERR("GPS[%d] Failed to configure F9P baud rate", id);
+  // UBX 명령 전송
+  if (!ubx_send_valset(&inst->gps, UBX_CFG_LAYER_RAM, &baudrate_cfg, 1)) {
+    LOG_ERR("GPS[%d] Failed to send UBX command", id);
+    return false;
+  }
+
+  // 수신 데이터를 파싱하면서 ACK 대기
+  uint32_t start_time = xTaskGetTickCount();
+  size_t old_pos = gps_port_get_rx_pos(id);
+  char *gps_recv = gps_port_get_recv_buf(id);
+  bool ack_received = false;
+
+  while ((xTaskGetTickCount() - start_time) < pdMS_TO_TICKS(2000)) {
+    size_t pos = gps_port_get_rx_pos(id);
+
+    // 수신된 데이터 파싱
+    if (pos != old_pos) {
+      xSemaphoreTake(inst->gps.mutex, portMAX_DELAY);
+
+      if (pos > old_pos) {
+        gps_parse_process(&inst->gps, &gps_recv[old_pos], pos - old_pos);
+      } else {
+        // Circular buffer wrap
+        gps_parse_process(&inst->gps, &gps_recv[old_pos], GPS_UART_MAX_RECV_SIZE - old_pos);
+        if (pos > 0) {
+          gps_parse_process(&inst->gps, gps_recv, pos);
+        }
+      }
+
+      old_pos = pos;
+      if (old_pos == GPS_UART_MAX_RECV_SIZE) {
+        old_pos = 0;
+      }
+
+      xSemaphoreGive(inst->gps.mutex);
+    }
+
+    // ACK 상태 확인
+    ubx_cmd_state_t state = ubx_get_cmd_state(&inst->gps.ubx_cmd_handler, 0);
+    if (state == UBX_CMD_STATE_ACK) {
+      ack_received = true;
+      break;
+    }
+    if (state == UBX_CMD_STATE_NAK) {
+      LOG_ERR("GPS[%d] F9P rejected baud rate change (NAK)", id);
+      return false;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+
+  if (!ack_received) {
+    LOG_ERR("GPS[%d] Failed to configure F9P baud rate (timeout)", id);
     return false;
   }
 
