@@ -416,52 +416,54 @@ static void on_baudrate_change_complete(bool ack, void *user_data)
 
 bool ubx_change_baudrate_and_init(gps_t* gps, uint32_t baudrate, gps_id_t gps_id, ubx_init_type_t init_type)
 {
-    LOG_INFO("Starting F9P baudrate change to %d bps for GPS ID %d", baudrate, gps_id);
+    LOG_INFO("F9P baudrate change to 115200 bps for GPS ID %d", gps_id);
 
-    // Prepare baudrate configuration
-    ubx_cfg_item_t baudrate_cfg = {
-        .key_id = CFG_BAUDRATE_UART1,
-        .value_len = 4,
+    // UBX CFG-VALSET message for 115200 bps
+    // Sync(2) + Class(1) + ID(1) + Len(2) + Payload(12) + Checksum(2) = 20 bytes
+    const uint8_t ubx_baudrate_115200[] = {
+        0xB5, 0x62,             // Sync bytes
+        0x06, 0x8A,             // Class CFG, ID VALSET
+        0x0C, 0x00,             // Payload length = 12
+        0x00,                   // Version
+        0x01,                   // Layer: RAM
+        0x00, 0x00,             // Reserved
+        0x01, 0x00, 0x52, 0x40, // Key ID: CFG-UART1-BAUDRATE (0x40520001)
+        0x00, 0xC2, 0x01, 0x00, // Value: 115200 (0x0001C200, little-endian)
+        0x8A, 0x42              // Checksum
     };
 
-    // Set baudrate value (little-endian)
-    baudrate_cfg.value[0] = (baudrate >> 0) & 0xFF;
-    baudrate_cfg.value[1] = (baudrate >> 8) & 0xFF;
-    baudrate_cfg.value[2] = (baudrate >> 16) & 0xFF;
-    baudrate_cfg.value[3] = (baudrate >> 24) & 0xFF;
-
-    // Send baudrate change command
-    if (!ubx_send_valset(gps, UBX_CFG_LAYER_RAM, &baudrate_cfg, 1))
-    {
-        LOG_ERR("Failed to send baudrate change command");
+    // Send raw UBX message
+    if (gps->ops && gps->ops->send) {
+        gps->ops->send((const char *)ubx_baudrate_115200, sizeof(ubx_baudrate_115200));
+        LOG_INFO("Baudrate change command sent");
+    } else {
+        LOG_ERR("GPS send ops not available");
         return false;
     }
 
-    LOG_INFO("Baudrate change command sent");
-
-    // 간단한 busy-wait 딜레이 (F9P가 명령 처리할 시간)
+    // 간단한 busy-wait 딜레이
     for(volatile uint32_t i = 0; i < 1000000; i++);
 
     // Change STM UART baudrate
-    gps_uart_change_baudrate(gps_id, baudrate);
-    LOG_INFO("STM UART baudrate changed to %d", baudrate);
+    gps_uart_change_baudrate(gps_id, 115200);
+    LOG_INFO("STM UART baudrate changed to 115200");
 
-    // Execute initialization function based on type
+    // Execute initialization
     switch (init_type)
     {
         case UBX_INIT_TYPE_BASE:
             ubx_base_init(gps);
-            LOG_INFO("Starting UBX base init after baudrate change");
+            LOG_INFO("Starting UBX base init");
             break;
 
         case UBX_INIT_TYPE_ROVER:
             ubx_rover_init(gps);
-            LOG_INFO("Starting UBX rover init after baudrate change");
+            LOG_INFO("Starting UBX rover init");
             break;
 
         case UBX_INIT_TYPE_MOVING_BASE:
             ubx_moving_base_init(gps);
-            LOG_INFO("Starting UBX moving base init after baudrate change");
+            LOG_INFO("Starting UBX moving base init");
             break;
 
         default:
