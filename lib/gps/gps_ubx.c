@@ -78,6 +78,9 @@ static void store_ubx_nav_data(gps_t *gps)
  */
 static void store_ubx_data(gps_t *gps)
 {
+  LOG_DEBUG("UBX message: Class=0x%02X ID=0x%02X Len=%d",
+            gps->ubx.class, gps->ubx.id, gps->ubx.len);
+
   switch (gps->ubx.class)
   {
   case GPS_UBX_CLASS_NAV:
@@ -85,10 +88,12 @@ static void store_ubx_data(gps_t *gps)
     break;
 
   case GPS_UBX_CLASS_ACK:
+    LOG_DEBUG("Entering store_ubx_ack_data");
     store_ubx_ack_data(gps);
     break;
 
   default:
+    LOG_DEBUG("Unknown UBX class: 0x%02X", gps->ubx.class);
     break;
   }
 }
