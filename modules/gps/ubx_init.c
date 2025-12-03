@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include "gps_ubx.h"
 #include "ubx_init.h"
+#include "gps_port.h"
 
 #ifndef TAG
     #define TAG "UBX_INIT"
@@ -356,4 +357,92 @@ bool ubx_factory_reset(gps_t* gps, ubx_init_complete_callback_t callback, void *
 
     return true;
 
+}
+
+typedef struct {
+    gps_t *gps;
+    gps_id_t gps_id;
+    ubx_init_type_t init_type;
+} baudrate_change_context_t;
+
+static baudrate_change_context_t baudrate_ctx = {0};
+
+static void on_baudrate_change_complete(bool ack, void *user_data)
+{
+    baudrate_change_context_t *ctx = (baudrate_change_context_t *)user_data;
+
+    if (ack)
+    {
+        LOG_INFO("F9P baudrate change ACK received!");
+
+        // Delay for GPS to apply baudrate change
+        vTaskDelay(pdMS_TO_TICKS(100));
+
+        // Change STM UART baudrate to 115200
+        gps_uart_change_baudrate(ctx->gps_id, 115200);
+        LOG_INFO("STM UART baudrate changed to 115200");
+
+        // Delay for UART stabilization
+        vTaskDelay(pdMS_TO_TICKS(100));
+
+        // Execute initialization function based on type
+        switch (ctx->init_type)
+        {
+            case UBX_INIT_TYPE_BASE:
+                ubx_base_init(ctx->gps);
+                LOG_INFO("Starting UBX base init after baudrate change");
+                break;
+
+            case UBX_INIT_TYPE_ROVER:
+                ubx_rover_init(ctx->gps);
+                LOG_INFO("Starting UBX rover init after baudrate change");
+                break;
+
+            case UBX_INIT_TYPE_MOVING_BASE:
+                ubx_moving_base_init(ctx->gps);
+                LOG_INFO("Starting UBX moving base init after baudrate change");
+                break;
+
+            default:
+                LOG_ERR("Unknown init type!");
+                break;
+        }
+    }
+    else
+    {
+        LOG_ERR("F9P baudrate change failed (NAK received)");
+    }
+}
+
+bool ubx_change_baudrate_and_init(gps_t* gps, uint32_t baudrate, gps_id_t gps_id, ubx_init_type_t init_type)
+{
+    LOG_INFO("Starting F9P baudrate change to %d bps for GPS ID %d", baudrate, gps_id);
+
+    // Store context for callback
+    baudrate_ctx.gps = gps;
+    baudrate_ctx.gps_id = gps_id;
+    baudrate_ctx.init_type = init_type;
+
+    // Prepare baudrate configuration
+    ubx_cfg_item_t baudrate_cfg = {
+        .key_id = CFG_BAUDRATE_UART1,
+        .value_len = 4,
+    };
+
+    // Set baudrate value (little-endian)
+    baudrate_cfg.value[0] = (baudrate >> 0) & 0xFF;
+    baudrate_cfg.value[1] = (baudrate >> 8) & 0xFF;
+    baudrate_cfg.value[2] = (baudrate >> 16) & 0xFF;
+    baudrate_cfg.value[3] = (baudrate >> 24) & 0xFF;
+
+    // Send baudrate change command with callback
+    if (!ubx_send_valset_cb(gps, UBX_CFG_LAYER_RAM, &baudrate_cfg, 1,
+                            on_baudrate_change_complete, &baudrate_ctx))
+    {
+        LOG_ERR("Failed to send baudrate change command");
+        return false;
+    }
+
+    LOG_INFO("Baudrate change command sent, waiting for ACK...");
+    return true;
 }

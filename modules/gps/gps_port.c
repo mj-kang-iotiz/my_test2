@@ -88,7 +88,7 @@ static void gps_uart2_init(void)
   /* USER CODE BEGIN USART2_Init 1 */
 
   /* USER CODE END USART2_Init 1 */
-  USART_InitStruct.BaudRate = 115200;
+  USART_InitStruct.BaudRate = 38400;  // F9P 초기 보드레이트 (나중에 115200으로 변경)
   USART_InitStruct.DataWidth = LL_USART_DATAWIDTH_8B;
   USART_InitStruct.StopBits = LL_USART_STOPBITS_1;
   USART_InitStruct.Parity = LL_USART_PARITY_NONE;
@@ -376,7 +376,7 @@ static void gps_uart4_init(void)
   /* USER CODE BEGIN UART4_Init 1 */
 
   /* USER CODE END UART4_Init 1 */
-  USART_InitStruct.BaudRate = 115200;
+  USART_InitStruct.BaudRate = 38400;  // F9P 초기 보드레이트 (나중에 115200으로 변경)
   USART_InitStruct.DataWidth = LL_USART_DATAWIDTH_8B;
   USART_InitStruct.StopBits = LL_USART_STOPBITS_1;
   USART_InitStruct.Parity = LL_USART_PARITY_NONE;
@@ -591,5 +591,50 @@ void gps_port_set_queue(gps_id_t id, QueueHandle_t queue)
   if (id < GPS_CNT)
   {
     gps_queues[id] = queue;
+  }
+}
+
+/**
+ * @brief GPS UART 보드레이트 동적 변경
+ */
+void gps_uart_change_baudrate(gps_id_t id, uint32_t baudrate)
+{
+  if (id >= GPS_CNT)
+  {
+    LOG_ERR("Invalid GPS ID: %d", id);
+    return;
+  }
+
+  LOG_INFO("Changing GPS[%d] UART baudrate to %d bps", id, baudrate);
+
+  if (id == GPS_ID_BASE)
+  {
+    // Disable USART2
+    LL_USART_Disable(USART2);
+
+    // Change baudrate
+    LL_USART_SetBaudRate(USART2, SystemCoreClock / 4, LL_USART_OVERSAMPLING_16, baudrate);
+
+    // Re-enable USART2
+    LL_USART_Enable(USART2);
+
+    LOG_INFO("USART2 baudrate changed to %d bps", baudrate);
+  }
+  else if (id == GPS_ID_ROVER)
+  {
+    // Disable UART4
+    LL_USART_Disable(UART4);
+
+    // Change baudrate
+    LL_USART_SetBaudRate(UART4, SystemCoreClock / 4, LL_USART_OVERSAMPLING_16, baudrate);
+
+    // Re-enable UART4
+    LL_USART_Enable(UART4);
+
+    LOG_INFO("UART4 baudrate changed to %d bps", baudrate);
+  }
+  else
+  {
+    LOG_ERR("Unknown GPS ID: %d", id);
   }
 }

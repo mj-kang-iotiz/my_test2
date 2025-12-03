@@ -602,15 +602,18 @@ static void gps_process_task(void *pvParameter) {
 #elif defined(BOARD_TYPE_ROVER_UNICORE)
   gps_init_um982_rover_async(id, overall_init_complete);
 #elif defined(BOARD_TYPE_BASE_UBLOX)
-  ubx_base_init(&inst->gps);
+  // F9P GPS: 보드레이트를 115200bps로 변경 후 초기화
+  ubx_change_baudrate_and_init(&inst->gps, 115200, id, UBX_INIT_TYPE_BASE);
 #elif defined(BOARD_TYPE_ROVER_UBLOX)
   if(id == GPS_ID_BASE)
   {
-    ubx_moving_base_init(&inst->gps);
+    // F9P GPS: 보드레이트를 115200bps로 변경 후 moving base 초기화
+    ubx_change_baudrate_and_init(&inst->gps, 115200, id, UBX_INIT_TYPE_MOVING_BASE);
   }
   else if(id == GPS_ID_ROVER)
   {
-    ubx_rover_init(&inst->gps);
+    // F9P GPS: 보드레이트를 115200bps로 변경 후 rover 초기화
+    ubx_change_baudrate_and_init(&inst->gps, 115200, id, UBX_INIT_TYPE_ROVER);
   }
 #endif
   bool init_done = false;
