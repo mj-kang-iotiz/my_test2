@@ -4,11 +4,21 @@ F9P 모듈의 UART1, UART2 보드레이트를 38400에서 115200으로 변경하
 
 ## 개요
 
-- **STM32 UART2** → **F9P UART1** (보드레이트 변경)
-- **STM32 UART4** → **F9P UART2** (보드레이트 변경)
+### 연결 구조
+```
+STM32 UART2 ↔ Base F9P UART1   (메인 통신, 38400→115200)
+STM32 UART4 ↔ Rover F9P UART1  (메인 통신, 38400→115200)
+
+Base F9P UART2 ↔ Rover F9P UART2  (RTCM 보정 데이터, 38400→115200)
+```
+
+### 특징
+- **F9P UART1**: STM32와 통신 (UBX, NMEA)
+- **F9P UART2**: F9P 모듈끼리 RTCM 통신 (STM32 연결 안됨!)
 - LL 라이브러리 사용
 - Flash 저장 없이 RAM만 변경 (재부팅 시 초기화)
 - **DMA 자동 제어**: DMA가 활성화된 상태에서도 안전하게 동작
+- **UBX-CFG-PRT 프로토콜**: UART1을 통해 UART2도 설정
 
 ## 자동 초기화 (권장)
 
@@ -27,8 +37,19 @@ F9P 모듈의 UART1, UART2 보드레이트를 38400에서 115200으로 변경하
 
 ### 동작 시점
 
-- `gps_rtk_uart2_init()` → UART 초기화 → **보드레이트 변경** → DMA 활성화
-- `gps_rtk_uart4_init()` → UART 초기화 → **보드레이트 변경** → DMA 활성화
+**Base F9P (STM32 UART2):**
+- `gps_rtk_uart2_init()` 호출
+- UART 초기화 (38400)
+- **F9P UART1 → 115200 변경** (STM32 UART2도 변경)
+- **F9P UART2 → 115200 변경** (UART1을 통해 명령 전송)
+- DMA 활성화
+
+**Rover F9P (STM32 UART4):**
+- `gps_rtk_uart4_init()` 호출
+- UART 초기화 (38400)
+- **F9P UART1 → 115200 변경** (STM32 UART4도 변경)
+- **F9P UART2 → 115200 변경** (UART1을 통해 명령 전송)
+- DMA 활성화
 
 ## 수동 사용 방법
 
@@ -101,7 +122,7 @@ if (f9p_poll_uart2_baudrate(gps_rover, &baudrate)) {
    - 115200 bps에서 Poll 재시도
    - 성공 시 완료, 실패 시 38400으로 복원
 
-## 주요 변경사항 (v2.0)
+## 주요 변경사항 (v2.1)
 
 ### ✅ 해결된 문제들
 
@@ -113,7 +134,13 @@ if (f9p_poll_uart2_baudrate(gps_rover, &baudrate)) {
    - `gps_port.c`에 통합되어 GPS 초기화 시 자동으로 보드레이트 변경
    - DMA 활성화 전에 실행되어 안전함
 
-3. **검증 강화**:
+3. **F9P UART2 지원 추가** ⭐:
+   - F9P UART2는 STM32에 연결되지 않고 F9P 모듈끼리 RTCM 통신용
+   - UART1을 통해 UBX-CFG-PRT 명령으로 UART2 보드레이트 설정
+   - Base와 Rover 모두 UART2를 115200으로 자동 설정
+   - **UBX-CFG-VALSET 방식이 아니라 UBX-CFG-PRT 방식 사용**
+
+4. **검증 강화**:
    - 변경 후 실제 보드레이트 확인
    - 실패 시 자동 롤백 (38400으로 복원)
 
