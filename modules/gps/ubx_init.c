@@ -153,21 +153,53 @@ static const ubx_cfg_item_t ublox_rover_configs[] = {
         .value_len = 1,
     },
 
-    /* UART2 포트 설정 */
+    /* UART2 포트 설정 - Rover는 RTCM 입력만 필요 */
     {
         .key_id = CFG_UART2INPROT_RTCM3X,
         .value = {1},
         .value_len = 1,
     },
-
-    {
-        .key_id = CFG_UART2OUTPROT_RTCM3X,
-        .value = {0},
-        .value_len = 1,
-    },
 };
 
 static const ubx_cfg_item_t ublox_moving_base_configs[] = {
+    /* NMEA OUTPUT 설정 */
+    {
+        .key_id = CFG_GLL_UART1,
+        .value = {0},
+        .value_len = 1,
+    },
+
+    {
+        .key_id = CFG_GSA_UART1,
+        .value = {0},
+        .value_len = 1,
+    },
+
+    {
+        .key_id = CFG_GSV_UART1,
+        .value = {0},
+        .value_len = 1,
+    },
+
+    {
+        .key_id = CFG_RMC_UART1,
+        .value = {0},
+        .value_len = 1,
+    },
+
+    {
+        .key_id = CFG_VTG_UART1,
+        .value = {0},
+        .value_len = 1,
+    },
+
+    /* UBX 메시지 설정 */
+    {
+        .key_id = CFG_NAV_HPPOSLLH_UART1,
+        .value = {1},
+        .value_len = 1,
+    },
+
     /* RTCM 설정 */
     {
         .key_id = CFG_RTCM_1005_UART2,
@@ -198,7 +230,7 @@ static const ubx_cfg_item_t ublox_moving_base_configs[] = {
         .value = {1},
         .value_len = 1,
     },
-    
+
     /* UART2 포트 설정 */
     {
         .key_id = CFG_UART2INPROT_RTCM3X,
