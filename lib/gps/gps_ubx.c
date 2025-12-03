@@ -1044,6 +1044,7 @@ void ubx_init_async_cancel(gps_t *gps)
   ctx->current_step = 0;
 }
 
+
 bool ubx_send_cfg_cfg(gps_t *gps, uint32_t clear_mask, uint32_t save_mask,
 
                       uint32_t load_mask, ubx_ack_callback_t callback, void *user_data)

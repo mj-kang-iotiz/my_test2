@@ -8,6 +8,7 @@
 #include "rtcm.h"
 #include "led.h"
 #include <string.h>
+#include "ubx_init.h"
 
 #ifndef TAG
   #define TAG "GPS_APP"
@@ -593,9 +594,9 @@ static void gps_process_task(void *pvParameter) {
     led_set_state(2, true);
   }
 
-  vTaskDelay(pdMS_TO_TICKS(2000));
+  vTaskDelay(pdMS_TO_TICKS(1000));
 
-  gps_factory_reset_async(id, callback_function, NULL);
+  // gps_factory_reset_async(id, callback_function, NULL);
 
 #if defined(BOARD_TYPE_BASE_UNICORE)
   gps_init_um982_base_async(id, overall_init_complete);
@@ -641,7 +642,7 @@ static void gps_process_task(void *pvParameter) {
       if (use_led) {
         led_set_color(2, LED_COLOR_YELLOW);
       }
-    } else if (inst->gps.nmea_data.gga.fix < GPS_FIX_RTK_FLOAT) {
+    } else if (inst->gps.nmea_data.gga.fix ==  GPS_FIX_RTK_FIX) {
       if (use_led) {
         led_set_color(2, LED_COLOR_GREEN);
       }
@@ -663,12 +664,14 @@ static void gps_process_task(void *pvParameter) {
       if (pos > old_pos) {
         size_t len = pos - old_pos;
         total_received = len;
+        LOG_DEBUG("[%d] %d received", id, (int)len);
         LOG_DEBUG_RAW("RAW: ", &gps_recv[old_pos], len);
         gps_parse_process(&inst->gps, &gps_recv[old_pos], pos - old_pos);
       } else {
         size_t len1 = GPS_UART_MAX_RECV_SIZE - old_pos;
         size_t len2 = pos;
         total_received = len1 + len2;
+        LOG_DEBUG("[%d] %d received (wrap around)", id, (int)(len1 + len2));
         LOG_DEBUG_RAW("RAW: ", &gps_recv[old_pos], len1);
         gps_parse_process(&inst->gps, &gps_recv[old_pos],
                           GPS_UART_MAX_RECV_SIZE - old_pos);

@@ -1,6 +1,6 @@
 #include "ble_app.h"
 
-typedef void (*ble_at_cmd_handler_t)(const char *param);
+typedef void (*ble_at_cmd_handler_t)(ble_instance_t *inst, const char *param);
 
 typedef struct
 {

@@ -18,19 +18,26 @@ void ble_cmd_parse_process(ble_instance_t *inst, const void *data, size_t len)
   {
     if(inst->parse_stae == BLE_CMD_PARSE_STATE_NONE)
     {
-        if(*d == '+')
-        {
-            inst->parser.pos = 0;
-            inst->parser.data[inst->parser.pos++] = (char)(*d);
-            inst->parser.data[inst->parser.pos] = '\0';
-            inst->parse_stae = BLE_CMD_PARSE_STATE_DATA;
-        }
+      if(*d == '+')
+      {
+          inst->parser.pos = 0;
+          inst->parser.data[inst->parser.pos++] = (char)(*d);
+          inst->parser.data[inst->parser.pos] = '\0';
+          inst->parse_stae = BLE_CMD_PARSE_STATE_DATA;
+      }
       else if(*d == 'A')
       {
         inst->parser.pos = 0;
         inst->parser.data[inst->parser.pos++] = (char)(*d);
         inst->parser.data[inst->parser.pos] = '\0';
         inst->parse_stae = BLE_CMD_PARSE_STATE_GOT_A;
+      }
+      else
+      {
+        inst->parser.pos = 0;
+        inst->parser.data[inst->parser.pos++] = (char)(*d);
+        inst->parser.data[inst->parser.pos] = '\0';
+        inst->parse_stae = BLE_CMD_PARSE_STATE_APP;
       }
     }
     else if(inst->parse_stae == BLE_CMD_PARSE_STATE_GOT_A)
@@ -54,7 +61,7 @@ void ble_cmd_parse_process(ble_instance_t *inst, const void *data, size_t len)
         }
       }
     }
-    else if(inst->parse_stae == BLE_CMD_PARSE_STATE_DATA)
+    else if(inst->parse_stae == BLE_CMD_PARSE_STATE_DATA || inst->parse_stae == BLE_CMD_PARSE_STATE_APP)
     {
         if(inst->parser.pos < sizeof(inst->parser.data) - 1)
         {
@@ -69,12 +76,19 @@ void ble_cmd_parse_process(ble_instance_t *inst, const void *data, size_t len)
           inst->parse_stae = BLE_CMD_PARSE_STATE_NONE;
         }
 
-        if(*d == '\r')
+        if(*d == '\r' || *d == '\n')
         {
           inst->parser.data[inst->parser.pos - 1] = '\0'; // \r 제거
           LOG_INFO("BLE AT Command received: %s", inst->parser.data);
 
-          ble_at_cmd_handler(inst);
+          if(inst->parse_stae == BLE_CMD_PARSE_STATE_DATA)
+          {
+            ble_at_cmd_handler(inst);
+          }
+          else
+          {
+            ble_app_cmd_handler(inst);
+          }
 
           inst->parser.prev_char = '\0';
           inst->parser.pos = 0;

@@ -16,6 +16,7 @@ typedef enum
   BLE_CMD_PARSE_STATE_NONE,
   BLE_CMD_PARSE_STATE_GOT_A,
   BLE_CMD_PARSE_STATE_DATA,
+  BLE_CMD_PARSE_STATE_APP,
 }ble_cmd_parse_state_t;
 
 typedef struct {
