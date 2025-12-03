@@ -429,7 +429,7 @@ bool ubx_change_baudrate_and_init(gps_t* gps, uint32_t baudrate, gps_id_t gps_id
         0x00, 0x00,             // Reserved
         0x01, 0x00, 0x52, 0x40, // Key ID: CFG-UART1-BAUDRATE (0x40520001)
         0x00, 0xC2, 0x01, 0x00, // Value: 115200 (0x0001C200, little-endian)
-        0x8A, 0x42              // Checksum
+        0xF3, 0xA5              // Checksum (corrected)
     };
 
     // Send raw UBX message
