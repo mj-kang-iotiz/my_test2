@@ -75,11 +75,12 @@ typedef struct
   lora_cmd_request_t *current_cmd_req;        // 현재 처리 중인 명령어
   lora_p2p_recv_callback_t p2p_recv_callback; // P2P 수신 콜백
   void *p2p_recv_user_data;                   // P2P 수신 콜백 사용자 데이터
-
-  rtcm_reassembly_t rtcm_reassembly;          // RTCM fragment 재조립 버퍼
 } lora_app_instance_t;
 
 static lora_app_instance_t instance;
+
+// RTCM fragment 재조립 버퍼 (CCM RAM에 배치)
+__attribute__((section(".ccmram"))) static rtcm_reassembly_t g_rtcm_reassembly;
 
 /**
  * @brief LoRa 초기화 완료 콜백
@@ -820,22 +821,22 @@ static void lora_process_task(void *pvParameter)
                        recv_data.data_len, recv_data.rssi, recv_data.snr);
 
               // RTCM fragment 재조립
-              bool complete = rtcm_reassembly_process(&instance.rtcm_reassembly,
+              bool complete = rtcm_reassembly_process(&g_rtcm_reassembly,
                                                       (uint8_t *)recv_data.data,
                                                       recv_data.data_len);
 
               if (complete)
               {
                 // 완전한 RTCM 패킷 수신 - 검증 후 GPS로 전송
-                if (rtcm_validate_packet(instance.rtcm_reassembly.buffer,
-                                        instance.rtcm_reassembly.expected_len))
+                if (rtcm_validate_packet(g_rtcm_reassembly.buffer,
+                                        g_rtcm_reassembly.expected_len))
                 {
                   LOG_INFO("Valid RTCM packet - sending to GPS via UART");
 
                   // GPS UART로 직접 전송
                   if (!gps_send_raw_data(GPS_ID_ROVER,
-                                         instance.rtcm_reassembly.buffer,
-                                         instance.rtcm_reassembly.expected_len))
+                                         g_rtcm_reassembly.buffer,
+                                         g_rtcm_reassembly.expected_len))
                   {
                     LOG_ERR("Failed to send RTCM data to GPS");
                   }
@@ -846,18 +847,18 @@ static void lora_process_task(void *pvParameter)
                 }
 
                 // 남은 데이터 처리 (다음 RTCM 패킷의 시작일 수 있음)
-                if (instance.rtcm_reassembly.buffer_pos > instance.rtcm_reassembly.expected_len)
+                if (g_rtcm_reassembly.buffer_pos > g_rtcm_reassembly.expected_len)
                 {
-                  size_t remaining = instance.rtcm_reassembly.buffer_pos - instance.rtcm_reassembly.expected_len;
+                  size_t remaining = g_rtcm_reassembly.buffer_pos - g_rtcm_reassembly.expected_len;
                   LOG_INFO("Remaining %d bytes in buffer - moving to front", remaining);
 
                   // 남은 데이터를 버퍼 앞으로 이동
-                  memmove(instance.rtcm_reassembly.buffer,
-                          &instance.rtcm_reassembly.buffer[instance.rtcm_reassembly.expected_len],
+                  memmove(g_rtcm_reassembly.buffer,
+                          &g_rtcm_reassembly.buffer[g_rtcm_reassembly.expected_len],
                           remaining);
-                  instance.rtcm_reassembly.buffer_pos = remaining;
-                  instance.rtcm_reassembly.has_header = false;
-                  instance.rtcm_reassembly.expected_len = 0;
+                  g_rtcm_reassembly.buffer_pos = remaining;
+                  g_rtcm_reassembly.has_header = false;
+                  g_rtcm_reassembly.expected_len = 0;
 
                   // 남은 데이터로 다음 패킷 시작 시도
                   // (재귀 호출 대신 다음 수신에서 처리됨)
@@ -865,7 +866,7 @@ static void lora_process_task(void *pvParameter)
                 else
                 {
                   // 남은 데이터가 없으면 완전히 초기화
-                  rtcm_reassembly_reset(&instance.rtcm_reassembly);
+                  rtcm_reassembly_reset(&g_rtcm_reassembly);
                 }
               }
             }
@@ -928,22 +929,22 @@ static void lora_process_task(void *pvParameter)
                        recv_data.data_len, recv_data.rssi, recv_data.snr);
 
               // RTCM fragment 재조립
-              bool complete = rtcm_reassembly_process(&instance.rtcm_reassembly,
+              bool complete = rtcm_reassembly_process(&g_rtcm_reassembly,
                                                       (uint8_t *)recv_data.data,
                                                       recv_data.data_len);
 
               if (complete)
               {
                 // 완전한 RTCM 패킷 수신 - 검증 후 GPS로 전송
-                if (rtcm_validate_packet(instance.rtcm_reassembly.buffer,
-                                        instance.rtcm_reassembly.expected_len))
+                if (rtcm_validate_packet(g_rtcm_reassembly.buffer,
+                                        g_rtcm_reassembly.expected_len))
                 {
                   LOG_INFO("Valid RTCM packet - sending to GPS via UART (wrap)");
 
                   // GPS UART로 직접 전송
                   if (!gps_send_raw_data(GPS_ID_ROVER,
-                                         instance.rtcm_reassembly.buffer,
-                                         instance.rtcm_reassembly.expected_len))
+                                         g_rtcm_reassembly.buffer,
+                                         g_rtcm_reassembly.expected_len))
                   {
                     LOG_ERR("Failed to send RTCM data to GPS (wrap)");
                   }
@@ -954,18 +955,18 @@ static void lora_process_task(void *pvParameter)
                 }
 
                 // 남은 데이터 처리 (다음 RTCM 패킷의 시작일 수 있음)
-                if (instance.rtcm_reassembly.buffer_pos > instance.rtcm_reassembly.expected_len)
+                if (g_rtcm_reassembly.buffer_pos > g_rtcm_reassembly.expected_len)
                 {
-                  size_t remaining = instance.rtcm_reassembly.buffer_pos - instance.rtcm_reassembly.expected_len;
+                  size_t remaining = g_rtcm_reassembly.buffer_pos - g_rtcm_reassembly.expected_len;
                   LOG_INFO("Remaining %d bytes in buffer - moving to front (wrap)", remaining);
 
                   // 남은 데이터를 버퍼 앞으로 이동
-                  memmove(instance.rtcm_reassembly.buffer,
-                          &instance.rtcm_reassembly.buffer[instance.rtcm_reassembly.expected_len],
+                  memmove(g_rtcm_reassembly.buffer,
+                          &g_rtcm_reassembly.buffer[g_rtcm_reassembly.expected_len],
                           remaining);
-                  instance.rtcm_reassembly.buffer_pos = remaining;
-                  instance.rtcm_reassembly.has_header = false;
-                  instance.rtcm_reassembly.expected_len = 0;
+                  g_rtcm_reassembly.buffer_pos = remaining;
+                  g_rtcm_reassembly.has_header = false;
+                  g_rtcm_reassembly.expected_len = 0;
 
                   // 남은 데이터로 다음 패킷 시작 시도
                   // (재귀 호출 대신 다음 수신에서 처리됨)
@@ -973,7 +974,7 @@ static void lora_process_task(void *pvParameter)
                 else
                 {
                   // 남은 데이터가 없으면 완전히 초기화
-                  rtcm_reassembly_reset(&instance.rtcm_reassembly);
+                  rtcm_reassembly_reset(&g_rtcm_reassembly);
                 }
               }
             }
@@ -998,7 +999,7 @@ void lora_instance_init(void)
   lora_init(&instance.lora);
 
   // RTCM 재조립 버퍼 초기화
-  rtcm_reassembly_reset(&instance.rtcm_reassembly);
+  rtcm_reassembly_reset(&g_rtcm_reassembly);
 
   if (lora_port_init_instance(&instance.lora) != 0)
   {
