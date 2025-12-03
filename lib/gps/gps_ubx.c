@@ -723,6 +723,9 @@ static void store_ubx_ack_data(gps_t *gps)
 
     bool is_ack = (gps->ubx.id == GPS_UBX_ACK_ID_ACK);
 
+    LOG_DEBUG("UBX %s received for Class=0x%02X ID=0x%02X",
+              is_ack ? "ACK" : "NAK", acked_cls, acked_id);
+
     // ACK/NAK 처리
 
     handle_ubx_ack(gps, acked_cls, acked_id, is_ack);
