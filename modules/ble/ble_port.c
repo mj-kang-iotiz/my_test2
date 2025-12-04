@@ -178,31 +178,39 @@ int ble_uart5_hw_init(void) {
  
 
   // 4. 자동 속도 감지: 9600bps 통신 확인
-
   LOG_INFO("Auto-detecting BLE module baudrate...");
-
   LOG_INFO("Testing 9600 bps...");
 
-  ret = ble_send_at_command_sync("AT\r\n", "+OK", 2000);  // \r\n 추가, 타임아웃 증가
+  ret = ble_send_at_command_sync("AT\r\n", "+OK", 2000);
 
- 
   if (ret == 0) {
+    // 9600bps 통신 성공 - 115200bps로 변경
+    LOG_INFO("9600 bps communication OK, changing to 115200 bps...");
 
-    LOG_INFO("Changing BLE module to 115200 bps...");
+    // UART 변경 커맨드 전송 (OK + READY 대기)
+    ret = ble_send_uart_change_command(115200, 5000);
 
-    ret = ble_send_at_command_sync("AT+UART=115200\r\n", "+OK", 3000);
-    current_baudrate = 115200;
-    ble_uart5_change_baudrate(115200);
-    vTaskDelay(pdMS_TO_TICKS(2500));
+    if (ret == 0) {
+      // BLE 모듈 속도 변경 완료, MCU UART도 115200으로 변경
+      LOG_INFO("BLE module baudrate changed, updating MCU UART...");
+      ble_uart5_change_baudrate(115200);
+      current_baudrate = 115200;
+      HAL_Delay(500);  // 안정화 대기
+    } else {
+      LOG_ERR("Failed to change BLE module baudrate");
+      current_baudrate = 9600;  // 실패 시 9600 유지
+    }
   }
   else
   {
-    current_baudrate = 115200;
+    // 9600bps 통신 실패 - 이미 115200bps라고 가정
+    LOG_INFO("9600 bps no response, assuming 115200 bps...");
     ble_uart5_change_baudrate(115200);
+    current_baudrate = 115200;
+    HAL_Delay(500);
   }
 
   // 최종 속도 로그
-
   LOG_INFO("BLE initialization complete at %lu bps", current_baudrate);
  
   LL_USART_Disable(UART5);
@@ -322,6 +330,70 @@ static int ble_send_at_command_sync(const char *at_cmd, const char *expected_res
 
   LOG_ERR("AT command timeout");
   return -1;  // 타임아웃
+}
+
+// UART 변경 전용: AT+UART 커맨드 전송 후 +OK와 +READY 순차 대기
+static int ble_send_uart_change_command(uint32_t baudrate, uint32_t timeout_ms) {
+  char at_cmd[32];
+  char response[128];
+
+  snprintf(at_cmd, sizeof(at_cmd), "AT+UART=%lu\r\n", baudrate);
+  LOG_INFO("Sending UART change command: %s", at_cmd);
+
+  // AT 커맨드 전송
+  ble_uart5_send(at_cmd, strlen(at_cmd));
+
+  // 1. +OK 응답 대기
+  uint32_t start = HAL_GetTick();
+  bool ok_received = false;
+
+  while ((HAL_GetTick() - start) < timeout_ms) {
+    int len = ble_uart5_recv_line_poll(response, sizeof(response), 100);
+
+    if (len > 0) {
+      LOG_INFO("Received response: %s", response);
+
+      if (strstr(response, "+OK") != NULL) {
+        LOG_INFO("UART change: +OK received");
+        ok_received = true;
+        break;
+      }
+
+      if (strstr(response, "+ERROR") != NULL) {
+        LOG_ERR("UART change failed: %s", response);
+        return -1;
+      }
+    }
+  }
+
+  if (!ok_received) {
+    LOG_ERR("UART change: +OK timeout");
+    return -1;
+  }
+
+  // 2. 2초 대기 (매뉴얼 명시)
+  LOG_INFO("Waiting 2 seconds for baudrate change...");
+  HAL_Delay(2000);
+
+  // 3. +READY 응답 대기
+  LOG_INFO("Waiting for +READY...");
+  start = HAL_GetTick();
+
+  while ((HAL_GetTick() - start) < timeout_ms) {
+    int len = ble_uart5_recv_line_poll(response, sizeof(response), 100);
+
+    if (len > 0) {
+      LOG_INFO("Received response: %s", response);
+
+      if (strstr(response, "+READY") != NULL) {
+        LOG_INFO("UART change: +READY received - baudrate change complete");
+        return 0;  // 성공
+      }
+    }
+  }
+
+  LOG_WARN("UART change: +READY timeout (but +OK was received, proceeding)");
+  return 0;  // +OK를 받았으므로 성공으로 간주
 }
 
 int ble_set_at_cmd_mode(void)
