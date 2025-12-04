@@ -146,38 +146,27 @@ int ble_uart5_comm_start(void) {
 
 int ble_uart5_hw_init(void) {
   int ret;
-
   uint32_t current_baudrate = 9600;  // 최종 확정된 속도
 
- 
-
-  // 1. DMA 초기화 (아직 시작하지 않음)
-
+  // 1. DMA 초기화 (DMA는 나중에 comm_start에서 시작)
   ble_uart5_dma_init();
 
- 
-
-  // 2. UART 9600bps로 초기화
-
+  // 2. UART 9600bps로 초기화 (폴링 모드로 AT 커맨드 처리)
   ble_uart5_init();
-
   LOG_INFO("BLE UART initialized at 9600 bps");
 
- 
+  // 3. AT 커맨드 모드로 전환
+  //    - 에지 트리거를 위해 Low → High 순서로 토글
+  ble_set_bypass_mode();  // Low
+  HAL_Delay(100);
+  ble_set_at_cmd_mode();  // High (AT 모드)
+  HAL_Delay(100);
 
-  // 3. AT 모드로 전환 (토글로 에지 생성)
-  ble_set_bypass_mode();  // Low 먼저
-  HAL_Delay(200);
-  ble_set_at_cmd_mode();  // High
-  HAL_Delay(2000);  // 모드 전환 대기 증가
-
+  // UART 활성화 (폴링 방식으로 AT 커맨드 처리)
   LL_USART_Enable(UART5);
+  HAL_Delay(500);  // BLE 모듈 부팅 대기
 
-  HAL_Delay(1000);  // 모드 전환 대기
-
- 
-
-  // 4. 자동 속도 감지: 9600bps 통신 확인
+  // 4. 자동 baudrate 감지 및 설정
   LOG_INFO("Auto-detecting BLE module baudrate...");
   LOG_INFO("Testing 9600 bps...");
 
@@ -187,17 +176,16 @@ int ble_uart5_hw_init(void) {
     // 9600bps 통신 성공 - 115200bps로 변경
     LOG_INFO("9600 bps communication OK, changing to 115200 bps...");
 
-    // UART 변경 커맨드 전송 (OK + READY 대기)
+    // UART 변경 커맨드 전송 (OK + READY 대기, MCU UART 자동 변경 포함)
     ret = ble_send_uart_change_command(115200, 5000);
 
     if (ret == 0) {
-      // BLE 모듈 속도 변경 완료, MCU UART도 115200으로 변경
-      LOG_INFO("BLE module baudrate changed, updating MCU UART...");
-      ble_uart5_change_baudrate(115200);
+      // BLE 모듈 및 MCU UART 변경 완료
+      LOG_INFO("Baudrate changed to 115200 successfully");
       current_baudrate = 115200;
-      HAL_Delay(500);  // 안정화 대기
+      HAL_Delay(100);  // 안정화 대기
     } else {
-      LOG_ERR("Failed to change BLE module baudrate");
+      LOG_ERR("Failed to change BLE module baudrate, staying at 9600");
       current_baudrate = 9600;  // 실패 시 9600 유지
     }
   }
@@ -207,14 +195,25 @@ int ble_uart5_hw_init(void) {
     LOG_INFO("9600 bps no response, assuming 115200 bps...");
     ble_uart5_change_baudrate(115200);
     current_baudrate = 115200;
-    HAL_Delay(500);
+    HAL_Delay(100);
   }
 
   // 최종 속도 로그
   LOG_INFO("BLE initialization complete at %lu bps", current_baudrate);
- 
+
+  // 5. AT+ADVON 전송 (advertising 시작)
+  LOG_INFO("Starting BLE advertising...");
+  ret = ble_send_at_command_sync("AT+ADVON\r\n", "+OK", 2000);
+  if (ret == 0) {
+    LOG_INFO("BLE advertising started successfully");
+  } else {
+    LOG_WARN("BLE advertising start failed or timeout");
+  }
+
+  HAL_Delay(100);  // ADVON 처리 대기
+
   LL_USART_Disable(UART5);
-  // 7. Bypass 모드로 전환 (정상 동작 준비)
+  // 6. Bypass 모드로 전환 (정상 동작 준비)
   ble_set_bypass_mode();
 
   return 0;
@@ -340,10 +339,10 @@ static int ble_send_uart_change_command(uint32_t baudrate, uint32_t timeout_ms) 
   snprintf(at_cmd, sizeof(at_cmd), "AT+UART=%lu\r\n", baudrate);
   LOG_INFO("Sending UART change command: %s", at_cmd);
 
-  // AT 커맨드 전송
+  // AT 커맨드 전송 (현재 속도로)
   ble_uart5_send(at_cmd, strlen(at_cmd));
 
-  // 1. +OK 응답 대기
+  // 1. +OK 응답 대기 (현재 속도로)
   uint32_t start = HAL_GetTick();
   bool ok_received = false;
 
@@ -354,7 +353,7 @@ static int ble_send_uart_change_command(uint32_t baudrate, uint32_t timeout_ms) 
       LOG_INFO("Received response: %s", response);
 
       if (strstr(response, "+OK") != NULL) {
-        LOG_INFO("UART change: +OK received");
+        LOG_INFO("UART change: +OK received at current baudrate");
         ok_received = true;
         break;
       }
@@ -371,12 +370,17 @@ static int ble_send_uart_change_command(uint32_t baudrate, uint32_t timeout_ms) 
     return -1;
   }
 
-  // 2. 2초 대기 (매뉴얼 명시)
-  LOG_INFO("Waiting 2 seconds for baudrate change...");
+  // 2. 즉시 MCU UART를 새로운 속도로 변경
+  //    BLE 모듈도 이 시점에 속도를 변경하기 시작함
+  LOG_INFO("Changing MCU UART to %lu bps...", baudrate);
+  ble_uart5_change_baudrate(baudrate);
+
+  // 3. 2초 대기 (매뉴얼 명시 - BLE 모듈이 baudrate 변경 완료하는 시간)
+  LOG_INFO("Waiting 2 seconds for BLE module baudrate change...");
   HAL_Delay(2000);
 
-  // 3. +READY 응답 대기
-  LOG_INFO("Waiting for +READY...");
+  // 4. +READY 응답 대기 (새로운 속도로)
+  LOG_INFO("Waiting for +READY at new baudrate...");
   start = HAL_GetTick();
 
   while ((HAL_GetTick() - start) < timeout_ms) {

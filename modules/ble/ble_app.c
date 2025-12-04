@@ -137,9 +137,7 @@ static void ble_rx_task(void *pvParameter) {
   uint8_t dummy = 0;
   size_t total_received = 0;
 
-  LOG_INFO("BLE RX Task started");  
-  vTaskDelay(pdMS_TO_TICKS(50));
-  ble_set_advon_async(1000);
+  LOG_INFO("BLE RX Task started");
 
   while (1) {
     xQueueReceive(inst->rx_queue, &dummy, portMAX_DELAY);
