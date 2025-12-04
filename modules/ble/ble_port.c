@@ -1,4 +1,5 @@
 #include "ble_port.h"
+#include "ble_app.h"
 #include "board_config.h"
 #include "board_type.h"
 #include "stm32f4xx_hal.h"
@@ -9,6 +10,7 @@
 #include "stm32f4xx_ll_usart.h"
 #include "FreeRTOS.h"
 #include "queue.h"
+#include <string.h>
 
 #ifndef TAG
     #define TAG "BLE_PORT"
@@ -138,9 +140,49 @@ int ble_uart5_comm_start(void) {
 }
 
 int ble_uart5_hw_init(void) {
+  int ret;
+
+  // 1. DMA 초기화 (아직 시작하지 않음)
   ble_uart5_dma_init();
+
+  // 2. UART 9600bps로 초기화
   ble_uart5_init();
+
+  LOG_INFO("BLE UART initialized at 9600 bps");
+
+  // 3. AT 모드로 전환
   ble_set_at_cmd_mode();
+  HAL_Delay(100);  // 모드 전환 대기
+
+  // 4. 동기적으로 UART 속도를 115200으로 변경
+  LOG_INFO("Changing BLE module baudrate to 115200...");
+  ret = ble_send_at_command_sync("AT+UART=115200\r\n", "+OK", 3000);
+
+  if (ret != 0) {
+    LOG_ERR("Failed to change BLE module baudrate");
+    // 실패해도 계속 진행 (9600으로 동작)
+    ble_set_bypass_mode();
+    return 0;
+  }
+
+  // 5. 짧은 대기 후 STM32 UART 속도 변경
+  HAL_Delay(50);
+  ble_uart5_change_baudrate(115200);
+
+  // 6. 통신 확인 (AT 커맨드 테스트)
+  LOG_INFO("Testing communication at 115200 bps...");
+  ret = ble_send_at_command_sync("AT\r\n", "+OK", 1000);
+
+  if (ret != 0) {
+    LOG_WARN("Communication test failed, reverting to 9600 bps");
+    // 통신 실패 시 9600으로 복귀
+    ble_uart5_change_baudrate(9600);
+  } else {
+    LOG_INFO("BLE communication established at 115200 bps");
+  }
+
+  // 7. Bypass 모드로 전환 (정상 동작 준비)
+  ble_set_bypass_mode();
 
   return 0;
 }
@@ -156,6 +198,105 @@ int ble_uart5_send(const char *data, size_t len) {
     ;
 
   return 0;
+}
+
+// 폴링 방식으로 1바이트 수신 (타임아웃 포함)
+static int ble_uart5_recv_poll(uint8_t *byte, uint32_t timeout_ms) {
+  uint32_t start = HAL_GetTick();
+
+  while (!LL_USART_IsActiveFlag_RXNE(UART5)) {
+    if ((HAL_GetTick() - start) > timeout_ms) {
+      return -1;  // 타임아웃
+    }
+  }
+
+  *byte = LL_USART_ReceiveData8(UART5);
+  return 0;
+}
+
+// 폴링 방식으로 문자열 수신 (라인 단위, 타임아웃 포함)
+static int ble_uart5_recv_line_poll(char *buf, size_t buf_size, uint32_t timeout_ms) {
+  size_t pos = 0;
+  uint32_t start = HAL_GetTick();
+
+  while (pos < buf_size - 1) {
+    uint8_t byte;
+
+    // 남은 시간 계산
+    uint32_t elapsed = HAL_GetTick() - start;
+    if (elapsed > timeout_ms) {
+      buf[pos] = '\0';
+      return -1;  // 타임아웃
+    }
+
+    // 1바이트 수신
+    if (ble_uart5_recv_poll(&byte, timeout_ms - elapsed) != 0) {
+      buf[pos] = '\0';
+      return -1;  // 타임아웃
+    }
+
+    buf[pos++] = (char)byte;
+
+    // \n 수신 시 종료
+    if (byte == '\n') {
+      buf[pos] = '\0';
+      return pos;
+    }
+  }
+
+  buf[buf_size - 1] = '\0';
+  return pos;
+}
+
+// UART 속도 재설정
+static int ble_uart5_change_baudrate(uint32_t baudrate) {
+  // UART 비활성화
+  LL_USART_Disable(UART5);
+
+  // 보드레이트 변경
+  LL_USART_SetBaudRate(UART5, HAL_RCC_GetPCLK1Freq(), LL_USART_OVERSAMPLING_16, baudrate);
+
+  // UART 재활성화
+  LL_USART_Enable(UART5);
+
+  LOG_INFO("UART5 baudrate changed to %lu", baudrate);
+  return 0;
+}
+
+// 동기 AT 커맨드 전송 및 응답 대기 (초기화용, 폴링 방식)
+static int ble_send_at_command_sync(const char *at_cmd, const char *expected_response, uint32_t timeout_ms) {
+  char response[128];
+
+  LOG_INFO("Sending AT command (sync): %s", at_cmd);
+
+  // AT 커맨드 전송
+  ble_uart5_send(at_cmd, strlen(at_cmd));
+
+  // 응답 대기 (폴링 방식)
+  uint32_t start = HAL_GetTick();
+
+  while ((HAL_GetTick() - start) < timeout_ms) {
+    int len = ble_uart5_recv_line_poll(response, sizeof(response), 100);
+
+    if (len > 0) {
+      LOG_INFO("Received response: %s", response);
+
+      // 기대 응답과 비교
+      if (strstr(response, expected_response) != NULL) {
+        LOG_INFO("AT command succeeded");
+        return 0;  // 성공
+      }
+
+      // 에러 응답 확인
+      if (strstr(response, "+ERROR") != NULL) {
+        LOG_ERR("AT command failed: %s", response);
+        return -1;
+      }
+    }
+  }
+
+  LOG_ERR("AT command timeout");
+  return -1;  // 타임아웃
 }
 
 int ble_set_at_cmd_mode(void)
@@ -223,16 +364,21 @@ void DMA1_Stream0_IRQHandler(void)
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-    if(GPIO_Pin == GPIO_PIN_11)
+    if(GPIO_Pin == GPIO_PIN_11)  // PC11: BLE 연결 상태 감지 핀
     {
-        uint32_t read = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_11);
-        if(read == GPIO_PIN_RESET)
+        GPIO_PinState pin_state = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_11);
+
+        if(pin_state == GPIO_PIN_RESET)
         {
-            // DISCONNECT
+            // DISCONNECT (LOW)
+            ble_set_connection_state(BLE_CONN_DISCONNECTED);
+            LOG_INFO("BLE GPIO: Disconnected (PC11 LOW)");
         }
         else
         {
-            // CONNECT
+            // CONNECT (HIGH)
+            ble_set_connection_state(BLE_CONN_CONNECTED);
+            LOG_INFO("BLE GPIO: Connected (PC11 HIGH)");
         }
     }
 }
