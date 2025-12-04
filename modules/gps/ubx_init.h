@@ -12,7 +12,7 @@ bool ubx_moving_base_init(gps_t* gps);
 bool ubx_factory_reset(gps_t* gps, ubx_init_complete_callback_t callback, void *user_data);
 
 /**
- * @brief Survey-in 모드 시작
+ * @brief Survey-in 모드 시작 - 동기 버전
  *
  * @param gps GPS 구조체
  * @param min_duration Survey-in 최소 지속 시간 (초), 권장값: 60~300
@@ -21,8 +21,25 @@ bool ubx_factory_reset(gps_t* gps, ubx_init_complete_callback_t callback, void *
  *
  * @note 이 함수는 ubx_base_init() 완료 후 호출해야 합니다.
  * @note Survey-in이 완료되면 자동으로 Fixed 모드로 전환됩니다.
+ * @warning 동기 방식으로 최대 3초 blocking될 수 있습니다.
  */
 bool ubx_set_survey_in_mode(gps_t* gps, uint32_t min_duration, uint32_t accuracy_limit);
+
+/**
+ * @brief Survey-in 모드 시작 - 비동기 버전
+ *
+ * @param gps GPS 구조체
+ * @param min_duration Survey-in 최소 지속 시간 (초), 권장값: 60~300
+ * @param accuracy_limit Survey-in 정확도 제한 (0.1mm 단위), 권장값: 50000 (5m)
+ * @param callback 완료 시 호출될 콜백 (성공 여부 전달)
+ * @param user_data 콜백에 전달할 사용자 데이터
+ * @return true 시작 성공, false 실패
+ *
+ * @note 이 함수는 즉시 반환되며, 완료 시 콜백이 호출됩니다.
+ * @note 콜백은 GPS task context에서 호출됩니다.
+ */
+bool ubx_set_survey_in_mode_async(gps_t* gps, uint32_t min_duration, uint32_t accuracy_limit,
+                                   ubx_init_complete_callback_t callback, void *user_data);
 
 /**
  * @brief Fixed 모드 설정 (수동 좌표 입력) - 동기 버전

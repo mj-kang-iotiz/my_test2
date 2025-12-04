@@ -583,6 +583,18 @@ bool ubx_disable_time_mode(gps_t* gps)
 /* ========== 비동기 버전 ========== */
 
 /**
+ * @brief Survey-in 비동기 설정을 위한 context
+ */
+typedef struct {
+    gps_t* gps;
+    ubx_cfg_item_t survey_configs[3];  // MODE, MIN_DUR, ACC_LIMIT
+    ubx_init_complete_callback_t user_callback;
+    void* user_data;
+    uint32_t min_duration;
+    uint32_t accuracy_limit;
+} survey_async_context_t;
+
+/**
  * @brief Fixed 모드 비동기 설정을 위한 context
  */
 typedef struct {
@@ -596,7 +608,86 @@ typedef struct {
     char alt_str[16];
 } tmode_async_context_t;
 
+static survey_async_context_t g_survey_ctx;
 static tmode_async_context_t g_tmode_ctx;
+
+/**
+ * @brief Survey-in 설정 완료 콜백
+ */
+static void on_survey_in_complete(bool ack, void *user_data)
+{
+    survey_async_context_t *ctx = (survey_async_context_t *)user_data;
+
+    if (ack) {
+        LOG_DEBUG("Survey-in mode started (duration: %u s, accuracy: %u mm)\n",
+                  ctx->min_duration, ctx->accuracy_limit / 10);
+        if (ctx->user_callback) {
+            ctx->user_callback(true, 0, ctx->user_data);
+        }
+    } else {
+        LOG_ERR("Failed to start survey-in mode\n");
+        if (ctx->user_callback) {
+            ctx->user_callback(false, 0, ctx->user_data);
+        }
+    }
+}
+
+/**
+ * @brief Survey-in 모드 시작 - 비동기 버전
+ *
+ * @param gps GPS 구조체
+ * @param min_duration Survey-in 최소 지속 시간 (초), 권장값: 60~300
+ * @param accuracy_limit Survey-in 정확도 제한 (0.1mm 단위), 권장값: 50000 (5m)
+ * @param callback 완료 시 호출될 콜백
+ * @param user_data 콜백에 전달할 사용자 데이터
+ * @return true 시작 성공, false 실패
+ */
+bool ubx_set_survey_in_mode_async(gps_t* gps, uint32_t min_duration, uint32_t accuracy_limit,
+                                   ubx_init_complete_callback_t callback, void *user_data)
+{
+    if (!gps) {
+        return false;
+    }
+
+    // Context 초기화
+    g_survey_ctx.gps = gps;
+    g_survey_ctx.user_callback = callback;
+    g_survey_ctx.user_data = user_data;
+    g_survey_ctx.min_duration = min_duration;
+    g_survey_ctx.accuracy_limit = accuracy_limit;
+
+    // Survey-in 설정 (Mode, Duration, Accuracy Limit)
+    g_survey_ctx.survey_configs[0].key_id = CFG_TMODE_MODE;
+    g_survey_ctx.survey_configs[0].value[0] = 1;  // Survey-in mode
+    g_survey_ctx.survey_configs[0].value_len = 1;
+
+    g_survey_ctx.survey_configs[1].key_id = CFG_TMODE_SVIN_MIN_DUR;
+    g_survey_ctx.survey_configs[1].value[0] = (min_duration & 0xFF);
+    g_survey_ctx.survey_configs[1].value[1] = (min_duration >> 8) & 0xFF;
+    g_survey_ctx.survey_configs[1].value[2] = (min_duration >> 16) & 0xFF;
+    g_survey_ctx.survey_configs[1].value[3] = (min_duration >> 24) & 0xFF;
+    g_survey_ctx.survey_configs[1].value_len = 4;
+
+    g_survey_ctx.survey_configs[2].key_id = CFG_TMODE_SVIN_ACC_LIMIT;
+    g_survey_ctx.survey_configs[2].value[0] = (accuracy_limit & 0xFF);
+    g_survey_ctx.survey_configs[2].value[1] = (accuracy_limit >> 8) & 0xFF;
+    g_survey_ctx.survey_configs[2].value[2] = (accuracy_limit >> 16) & 0xFF;
+    g_survey_ctx.survey_configs[2].value[3] = (accuracy_limit >> 24) & 0xFF;
+    g_survey_ctx.survey_configs[2].value_len = 4;
+
+    // 비동기 전송
+    bool result = ubx_send_valset_cb(gps, UBX_CFG_LAYER_RAM,
+                                     g_survey_ctx.survey_configs, 3,
+                                     on_survey_in_complete, &g_survey_ctx);
+
+    if (!result) {
+        LOG_ERR("Failed to send survey-in command\n");
+        return false;
+    }
+
+    LOG_DEBUG("Survey-in mode async started\n");
+    return true;
+}
 
 /**
  * @brief STEP 2 완료 콜백 (Mode 활성화 완료)
