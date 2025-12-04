@@ -56,22 +56,6 @@ bool gps_init_um982_base_fixed_async(gps_id_t id, double lat, double lon, double
 bool gps_init_um982_base_surveyin_async(gps_id_t id, uint32_t time_sec, float accuracy_m, gps_init_callback_t callback);
 
 /**
- * @brief 두 개의 베이스 스테이션을 비동기적으로 동시에 초기화
- * @param base1_id 첫 번째 베이스 스테이션 ID (Fixed Position)
- * @param base1_lat 첫 번째 베이스 위도
- * @param base1_lon 첫 번째 베이스 경도
- * @param base1_alt 첫 번째 베이스 고도
- * @param base2_id 두 번째 베이스 스테이션 ID (Survey-in)
- * @param base2_time Survey-in 시간 (초)
- * @param base2_accuracy Survey-in 정확도 (m)
- * @param callback 모든 초기화 완료 콜백
- * @return 초기화 시작 성공 여부
- */
-bool gps_init_dual_base_async(gps_id_t base1_id, double base1_lat, double base1_lon, double base1_alt,
-                               gps_id_t base2_id, uint32_t base2_time, float base2_accuracy,
-                               gps_init_callback_t callback);
-
-/**
  * @brief GPS 초기화 (board_config 기반)
  *
  * board_config.h의 설정을 읽어서 자동으로 GPS 인스턴스 생성

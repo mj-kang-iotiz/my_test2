@@ -236,19 +236,7 @@ typedef struct {
   uint8_t cmd_count;
   gps_init_callback_t callback;
   char **dynamic_cmds;  // 동적 할당된 명령어 배열 (해제 필요)
-  void *user_data;      // 콜백에 전달할 사용자 데이터
 } gps_init_context_t;
-
-// 두 베이스 스테이션 동시 초기화를 위한 콘텍스트
-typedef struct {
-  gps_id_t base1_id;
-  gps_id_t base2_id;
-  bool base1_done;
-  bool base2_done;
-  bool base1_success;
-  bool base2_success;
-  gps_init_callback_t final_callback;
-} dual_base_init_context_t;
 
 #if defined(BOARD_TYPE_BASE_UNICORE) || defined(BOARD_TYPE_ROVER_UNICORE)
 static void overall_init_complete(bool success, void *user_data) {
@@ -276,7 +264,7 @@ static void gps_init_command_callback(bool success, void *user_data) {
     if (ctx->current_step >= ctx->cmd_count) {
       LOG_INFO("GPS[%d] Init sequence complete!", ctx->gps_id);
       if (ctx->callback) {
-        ctx->callback(true, ctx->user_data);
+        ctx->callback(true, NULL);
       }
 
       // 동적으로 할당된 명령어 배열 해제
@@ -318,7 +306,7 @@ static void gps_init_command_callback(bool success, void *user_data) {
               GPS_INIT_MAX_RETRY, ctx->cmd_list[ctx->current_step]);
 
       if (ctx->callback) {
-        ctx->callback(false, ctx->user_data);
+        ctx->callback(false, NULL);
       }
 
       // 동적으로 할당된 명령어 배열 해제
@@ -360,7 +348,6 @@ bool gps_init_um982_base_async(gps_id_t id, gps_init_callback_t callback) {
   ctx->cmd_count = UM982_BASE_CMD_COUNT;
   ctx->callback = callback;
   ctx->dynamic_cmds = NULL;
-  ctx->user_data = NULL;
 
   LOG_DEBUG("GPS[%d] Starting UM982 base init sequence (%d commands)",
            id, ctx->cmd_count);
@@ -400,7 +387,6 @@ bool gps_init_um982_rover_async(gps_id_t id, gps_init_callback_t callback) {
   ctx->cmd_count = UM982_ROVER_CMD_COUNT;
   ctx->callback = callback;
   ctx->dynamic_cmds = NULL;
-  ctx->user_data = NULL;
 
   LOG_DEBUG("GPS[%d] Starting UM982 rover init sequence (%d commands)",
            id, ctx->cmd_count);
@@ -992,10 +978,9 @@ bool gps_factory_reset_async(gps_id_t id, gps_init_callback_t callback, void *us
 }
 
 /**
- * @brief GPS UM982 Base 모드 초기화 - Fixed Position (비동기) - 내부 사용
+ * @brief GPS UM982 Base 모드 초기화 - Fixed Position (비동기)
  */
-static bool gps_init_um982_base_fixed_async_internal(gps_id_t id, double lat, double lon, double alt,
-                                                      gps_init_callback_t callback, void *user_data) {
+bool gps_init_um982_base_fixed_async(gps_id_t id, double lat, double lon, double alt, gps_init_callback_t callback) {
   if (id >= GPS_ID_MAX || !gps_instances[id].enabled) {
     LOG_ERR("GPS[%d] invalid or disabled", id);
     return false;
@@ -1055,7 +1040,6 @@ static bool gps_init_um982_base_fixed_async_internal(gps_id_t id, double lat, do
   ctx->cmd_count = cmd_count;
   ctx->callback = callback;
   ctx->dynamic_cmds = cmds;
-  ctx->user_data = user_data;
 
   LOG_INFO("GPS[%d] Starting UM982 base FIXED init sequence (%d commands)", id, ctx->cmd_count);
   LOG_INFO("GPS[%d] Fixed position: lat=%.11f, lon=%.11f, alt=%.4f", id, lat, lon, alt);
@@ -1078,10 +1062,9 @@ static bool gps_init_um982_base_fixed_async_internal(gps_id_t id, double lat, do
 }
 
 /**
- * @brief GPS UM982 Base 모드 초기화 - Survey-in Mode (비동기) - 내부 사용
+ * @brief GPS UM982 Base 모드 초기화 - Survey-in Mode (비동기)
  */
-static bool gps_init_um982_base_surveyin_async_internal(gps_id_t id, uint32_t time_sec, float accuracy_m,
-                                                         gps_init_callback_t callback, void *user_data) {
+bool gps_init_um982_base_surveyin_async(gps_id_t id, uint32_t time_sec, float accuracy_m, gps_init_callback_t callback) {
   if (id >= GPS_ID_MAX || !gps_instances[id].enabled) {
     LOG_ERR("GPS[%d] invalid or disabled", id);
     return false;
@@ -1141,7 +1124,6 @@ static bool gps_init_um982_base_surveyin_async_internal(gps_id_t id, uint32_t ti
   ctx->cmd_count = cmd_count;
   ctx->callback = callback;
   ctx->dynamic_cmds = cmds;
-  ctx->user_data = user_data;
 
   LOG_INFO("GPS[%d] Starting UM982 base SURVEY-IN init sequence (%d commands)", id, ctx->cmd_count);
   LOG_INFO("GPS[%d] Survey-in: time=%u sec, accuracy=%.2f m", id, time_sec, accuracy_m);
@@ -1161,129 +1143,4 @@ static bool gps_init_um982_base_surveyin_async_internal(gps_id_t id, uint32_t ti
   }
 
   return true;
-}
-
-/**
- * @brief 두 베이스 스테이션 초기화 콜백
- */
-static void dual_base_init_callback(bool success, void *user_data) {
-  dual_base_init_context_t *dual_ctx = (dual_base_init_context_t *)user_data;
-
-  if (!dual_ctx) {
-    LOG_ERR("Dual base init context is NULL");
-    return;
-  }
-
-  // 어느 베이스 스테이션이 완료되었는지 확인
-  gps_id_t completed_id = GPS_ID_BASE;  // 기본값
-
-  // 완료된 베이스 스테이션 찾기
-  if (!dual_ctx->base1_done) {
-    dual_ctx->base1_done = true;
-    dual_ctx->base1_success = success;
-    completed_id = dual_ctx->base1_id;
-    LOG_INFO("GPS[%d] (Base1 - Fixed) init %s", completed_id, success ? "succeeded" : "failed");
-  } else if (!dual_ctx->base2_done) {
-    dual_ctx->base2_done = true;
-    dual_ctx->base2_success = success;
-    completed_id = dual_ctx->base2_id;
-    LOG_INFO("GPS[%d] (Base2 - Survey-in) init %s", completed_id, success ? "succeeded" : "failed");
-  }
-
-  // 두 베이스 스테이션 모두 완료되었는지 확인
-  if (dual_ctx->base1_done && dual_ctx->base2_done) {
-    bool overall_success = dual_ctx->base1_success && dual_ctx->base2_success;
-
-    LOG_INFO("=== Dual Base Station Init Complete ===");
-    LOG_INFO("  Base1 (GPS[%d] Fixed): %s", dual_ctx->base1_id, dual_ctx->base1_success ? "OK" : "FAILED");
-    LOG_INFO("  Base2 (GPS[%d] Survey-in): %s", dual_ctx->base2_id, dual_ctx->base2_success ? "OK" : "FAILED");
-    LOG_INFO("  Overall: %s", overall_success ? "SUCCESS" : "FAILED");
-
-    // 최종 콜백 호출
-    if (dual_ctx->final_callback) {
-      dual_ctx->final_callback(overall_success, NULL);
-    }
-
-    // 컨텍스트 해제
-    vPortFree(dual_ctx);
-  }
-}
-
-/**
- * @brief 두 개의 베이스 스테이션을 비동기적으로 동시에 초기화
- */
-bool gps_init_dual_base_async(gps_id_t base1_id, double base1_lat, double base1_lon, double base1_alt,
-                               gps_id_t base2_id, uint32_t base2_time, float base2_accuracy,
-                               gps_init_callback_t callback) {
-  // 두 베이스 스테이션 ID가 유효하고 다른지 확인
-  if (base1_id >= GPS_ID_MAX || base2_id >= GPS_ID_MAX) {
-    LOG_ERR("Invalid GPS IDs: base1=%d, base2=%d", base1_id, base2_id);
-    return false;
-  }
-
-  if (base1_id == base2_id) {
-    LOG_ERR("Base1 and Base2 IDs must be different");
-    return false;
-  }
-
-  if (!gps_instances[base1_id].enabled || !gps_instances[base2_id].enabled) {
-    LOG_ERR("One or both GPS instances are disabled");
-    return false;
-  }
-
-  // Dual 초기화 컨텍스트 생성
-  dual_base_init_context_t *dual_ctx = (dual_base_init_context_t *)pvPortMalloc(sizeof(dual_base_init_context_t));
-  if (!dual_ctx) {
-    LOG_ERR("Failed to allocate dual base init context");
-    return false;
-  }
-
-  // 컨텍스트 초기화
-  dual_ctx->base1_id = base1_id;
-  dual_ctx->base2_id = base2_id;
-  dual_ctx->base1_done = false;
-  dual_ctx->base2_done = false;
-  dual_ctx->base1_success = false;
-  dual_ctx->base2_success = false;
-  dual_ctx->final_callback = callback;
-
-  LOG_INFO("=== Starting Dual Base Station Async Init ===");
-  LOG_INFO("  Base1 (GPS[%d]): Fixed position (%.11f, %.11f, %.4f)",
-           base1_id, base1_lat, base1_lon, base1_alt);
-  LOG_INFO("  Base2 (GPS[%d]): Survey-in (%u sec, %.2f m)",
-           base2_id, base2_time, base2_accuracy);
-
-  // Base1 (Fixed position) 초기화 시작
-  if (!gps_init_um982_base_fixed_async_internal(base1_id, base1_lat, base1_lon, base1_alt,
-                                                 dual_base_init_callback, dual_ctx)) {
-    LOG_ERR("Failed to start Base1 (Fixed) init");
-    vPortFree(dual_ctx);
-    return false;
-  }
-
-  // Base2 (Survey-in) 초기화 시작
-  if (!gps_init_um982_base_surveyin_async_internal(base2_id, base2_time, base2_accuracy,
-                                                    dual_base_init_callback, dual_ctx)) {
-    LOG_ERR("Failed to start Base2 (Survey-in) init");
-    // Base1은 이미 시작되었으므로 콜백에서 정리될 것임
-    return false;
-  }
-
-  LOG_INFO("Both base stations are initializing asynchronously...");
-
-  return true;
-}
-
-/**
- * @brief GPS UM982 Base 모드 초기화 - Fixed Position (비동기) - Public API
- */
-bool gps_init_um982_base_fixed_async(gps_id_t id, double lat, double lon, double alt, gps_init_callback_t callback) {
-  return gps_init_um982_base_fixed_async_internal(id, lat, lon, alt, callback, NULL);
-}
-
-/**
- * @brief GPS UM982 Base 모드 초기화 - Survey-in Mode (비동기) - Public API
- */
-bool gps_init_um982_base_surveyin_async(gps_id_t id, uint32_t time_sec, float accuracy_m, gps_init_callback_t callback) {
-  return gps_init_um982_base_surveyin_async_internal(id, time_sec, accuracy_m, callback, NULL);
 }
