@@ -150,17 +150,25 @@ static void ble_rx_task(void *pvParameter) {
         size_t len = pos - old_pos;
         total_received = len;
         LOG_DEBUG_RAW("BLE RX: ", &ble_recv[old_pos], len);
-       ble_cmd_parse_process(inst, &ble_recv[old_pos], pos - old_pos);
+
+        // AT 모드일 때만 파싱 (Bypass 모드에서는 파싱 건너뛰기)
+        if (inst->current_mode == BLE_MODE_AT) {
+          ble_cmd_parse_process(inst, &ble_recv[old_pos], pos - old_pos);
+        }
       } else {
         size_t len1 = BLE_UART_MAX_RECV_SIZE - old_pos;
         size_t len2 = pos;
         total_received = len1 + len2;
         LOG_DEBUG_RAW("BLE RX: ", &ble_recv[old_pos], len1);
-       ble_cmd_parse_process(inst, &ble_recv[old_pos],
-                               BLE_UART_MAX_RECV_SIZE - old_pos);
-        if (pos > 0) {
-          LOG_DEBUG_RAW("BLE RX: ", ble_recv, len2);
-         ble_cmd_parse_process(inst, ble_recv, pos);
+
+        // AT 모드일 때만 파싱
+        if (inst->current_mode == BLE_MODE_AT) {
+          ble_cmd_parse_process(inst, &ble_recv[old_pos],
+                                  BLE_UART_MAX_RECV_SIZE - old_pos);
+          if (pos > 0) {
+            LOG_DEBUG_RAW("BLE RX: ", ble_recv, len2);
+            ble_cmd_parse_process(inst, ble_recv, pos);
+          }
         }
       }
       old_pos = pos;
@@ -186,6 +194,8 @@ void ble_init_all(void) {
   }
 
   ble_instance.enabled = true;
+  ble_instance.current_mode = BLE_MODE_BYPASS;  // 초기 모드는 Bypass
+  ble_instance.conn_state = BLE_CONN_DISCONNECTED;  // 초기 연결 상태
 
   if (ble_port_init_instance(&ble_instance.ble) != 0) {
     LOG_ERR("BLE 포트 초기화 실패");
@@ -325,6 +335,10 @@ ble_at_status_t ble_send_at_command_async(const char *at_cmd, const char *expect
     ble_instance.ble.ops->at_mode();
   }
 
+  xSemaphoreTake(ble_instance.mutex, portMAX_DELAY);
+  ble_instance.current_mode = BLE_MODE_AT;  // 모드 상태 업데이트
+  xSemaphoreGive(ble_instance.mutex);
+
   // 모드 전환 대기 (BLE 모듈이 안정화될 시간)
   vTaskDelay(pdMS_TO_TICKS(100));
 
@@ -365,6 +379,10 @@ ble_at_status_t ble_send_at_command_async(const char *at_cmd, const char *expect
   if (ble_instance.ble.ops && ble_instance.ble.ops->bypass_mode) {
     ble_instance.ble.ops->bypass_mode();
   }
+
+  xSemaphoreTake(ble_instance.mutex, portMAX_DELAY);
+  ble_instance.current_mode = BLE_MODE_BYPASS;  // 모드 상태 업데이트
+  xSemaphoreGive(ble_instance.mutex);
 
   if (result == pdFALSE) {
     LOG_ERR("AT command timeout");
@@ -462,4 +480,47 @@ bool ble_configure_async(const char *device_name, uint32_t baudrate) {
 
   LOG_INFO("BLE configuration completed successfully");
   return true;
+}
+
+// BLE 연결 상태 조회
+ble_connection_state_t ble_get_connection_state(void) {
+  if (!ble_instance.enabled) {
+    return BLE_CONN_DISCONNECTED;
+  }
+
+  xSemaphoreTake(ble_instance.mutex, portMAX_DELAY);
+  ble_connection_state_t state = ble_instance.conn_state;
+  xSemaphoreGive(ble_instance.mutex);
+
+  return state;
+}
+
+// BLE 연결 상태 변경 (GPIO 인터럽트에서 호출)
+void ble_set_connection_state(ble_connection_state_t state) {
+  if (!ble_instance.enabled) {
+    return;
+  }
+
+  xSemaphoreTake(ble_instance.mutex, portMAX_DELAY);
+  ble_instance.conn_state = state;
+  xSemaphoreGive(ble_instance.mutex);
+
+  if (state == BLE_CONN_CONNECTED) {
+    LOG_INFO("BLE Connected");
+  } else {
+    LOG_INFO("BLE Disconnected");
+  }
+}
+
+// 현재 모드 조회
+ble_mode_t ble_get_current_mode(void) {
+  if (!ble_instance.enabled) {
+    return BLE_MODE_BYPASS;
+  }
+
+  xSemaphoreTake(ble_instance.mutex, portMAX_DELAY);
+  ble_mode_t mode = ble_instance.current_mode;
+  xSemaphoreGive(ble_instance.mutex);
+
+  return mode;
 }

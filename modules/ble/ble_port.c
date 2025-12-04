@@ -1,4 +1,5 @@
 #include "ble_port.h"
+#include "ble_app.h"
 #include "board_config.h"
 #include "board_type.h"
 #include "stm32f4xx_hal.h"
@@ -224,16 +225,21 @@ void DMA1_Stream0_IRQHandler(void)
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-    if(GPIO_Pin == GPIO_PIN_11)
+    if(GPIO_Pin == GPIO_PIN_11)  // PC11: BLE 연결 상태 감지 핀
     {
-        uint32_t read = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_11);
-        if(read == GPIO_PIN_RESET)
+        GPIO_PinState pin_state = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_11);
+
+        if(pin_state == GPIO_PIN_RESET)
         {
-            // DISCONNECT
+            // DISCONNECT (LOW)
+            ble_set_connection_state(BLE_CONN_DISCONNECTED);
+            LOG_INFO("BLE GPIO: Disconnected (PC11 LOW)");
         }
         else
         {
-            // CONNECT
+            // CONNECT (HIGH)
+            ble_set_connection_state(BLE_CONN_CONNECTED);
+            LOG_INFO("BLE GPIO: Connected (PC11 HIGH)");
         }
     }
 }
