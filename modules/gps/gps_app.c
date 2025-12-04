@@ -456,6 +456,30 @@ void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
 
     break;
 
+  case GPS_PROTOCOL_UNICORE_BIN:
+    switch (msg.unicore_bin.msg) {
+      case GPS_UNICORE_BIN_MSG_BESTNAV: {
+        hpd_unicore_bestnavb_t *bestnav = &gps->unicore_bin_data.bestnav;
+
+        LOG_INFO("GPS[%d] BESTNAV: lat=%.8f, lon=%.8f, height=%.3f, sv=%d, used_sv=%d, hor_speed=%.3f",
+                 inst->id,
+                 bestnav->lat,
+                 bestnav->lon,
+                 bestnav->height,
+                 bestnav->sv,
+                 bestnav->used_sv,
+                 bestnav->hor_speed);
+
+        // 여기에 추가 처리 로직을 넣을 수 있습니다
+        // 예: 특정 조건에서 콜백 호출, 데이터 저장 등
+
+        break;
+      }
+      default:
+        break;
+    }
+    break;
+
   case GPS_PROTOCOL_RTCM:
     if(config->lora_mode == LORA_MODE_BASE)
     {
