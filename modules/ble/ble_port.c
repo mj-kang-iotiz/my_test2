@@ -188,6 +188,18 @@ int ble_uart5_hw_init(void) {
   ble_uart5_init();
   LOG_INFO("BLE UART initialized at 9600 bps");
 
+  // UART 상태 확인
+  if (LL_USART_IsEnabled(UART5)) {
+    LOG_INFO("UART5 is enabled");
+  } else {
+    LOG_ERR("UART5 is NOT enabled!");
+  }
+
+  // GPIO 상태 확인
+  GPIO_PinState pc10_state = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_10);
+  GPIO_PinState pc11_state = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_11);
+  LOG_INFO("Initial GPIO - PC10 (mode): %d, PC11 (conn): %d", pc10_state, pc11_state);
+
   // 3. AT 모드로 전환
   ble_set_at_cmd_mode();
   HAL_Delay(100);  // 모드 전환 대기
@@ -344,55 +356,80 @@ static int ble_uart5_change_baudrate(uint32_t baudrate) {
 static int ble_send_at_command_sync(const char *at_cmd, const char *expected_response, uint32_t timeout_ms) {
   char response[128];
   int received_count = 0;
+  int byte_count = 0;
 
   LOG_INFO("Sending AT command (sync): %s", at_cmd);
 
   // RX 버퍼 클리어 (이전 데이터 제거)
+  int cleared = 0;
   while (LL_USART_IsActiveFlag_RXNE(UART5)) {
     (void)LL_USART_ReceiveData8(UART5);
+    cleared++;
+  }
+  if (cleared > 0) {
+    LOG_INFO("Cleared %d bytes from RX buffer", cleared);
   }
 
-  // AT 커맨드 전송
+  // AT 커맨드 전송 (바이트 단위 로깅)
+  LOG_INFO("Sending %d bytes...", strlen(at_cmd));
   ble_uart5_send(at_cmd, strlen(at_cmd));
-  LOG_INFO("AT command sent, waiting for response...");
+  LOG_INFO("TX complete, waiting for RX...");
 
   // 응답 대기 (폴링 방식)
   uint32_t start = HAL_GetTick();
+  uint32_t last_log = start;
 
   while ((HAL_GetTick() - start) < timeout_ms) {
-    int len = ble_uart5_recv_line_poll(response, sizeof(response), 100);
+    // 500ms마다 대기 중 로그
+    if ((HAL_GetTick() - last_log) > 500) {
+      LOG_INFO("Still waiting... (elapsed: %lu ms, bytes: %d)", HAL_GetTick() - start, byte_count);
+      last_log = HAL_GetTick();
+    }
 
-    if (len > 0) {
-      received_count++;
-      LOG_INFO("Received response #%d (len=%d): %s", received_count, len, response);
+    // 단일 바이트 수신 체크 (짧은 타임아웃)
+    uint8_t byte;
+    if (ble_uart5_recv_poll(&byte, 10) == 0) {
+      byte_count++;
+      LOG_INFO("RX byte #%d: 0x%02X ('%c')", byte_count, byte, (byte >= 32 && byte < 127) ? byte : '.');
 
-      // 기대 응답과 비교
-      if (strstr(response, expected_response) != NULL) {
-        LOG_INFO("AT command succeeded");
-        return 0;  // 성공
-      }
+      // 라인 수신 재시도
+      int len = ble_uart5_recv_line_poll(response, sizeof(response), 100);
+      if (len > 0) {
+        received_count++;
+        LOG_INFO("Received response #%d (len=%d): %s", received_count, len, response);
 
-      // 에러 응답 확인
-      if (strstr(response, "+ERROR") != NULL) {
-        LOG_ERR("AT command failed: %s", response);
-        return -1;
+        // 기대 응답과 비교
+        if (strstr(response, expected_response) != NULL) {
+          LOG_INFO("AT command succeeded");
+          return 0;  // 성공
+        }
+
+        // 에러 응답 확인
+        if (strstr(response, "+ERROR") != NULL) {
+          LOG_ERR("AT command failed: %s", response);
+          return -1;
+        }
       }
     }
   }
 
-  LOG_ERR("AT command timeout (received %d responses)", received_count);
+  LOG_ERR("AT command timeout (received %d responses, %d bytes total)", received_count, byte_count);
   return -1;  // 타임아웃
 }
 
 int ble_set_at_cmd_mode(void)
 {
 	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_10, GPIO_PIN_SET);
+	GPIO_PinState state = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_10);
+	LOG_INFO("PC10 set to AT mode (state: %d)", state);
 	return 0;
 }
 
 int ble_set_bypass_mode(void)
 {
 	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_10, GPIO_PIN_RESET);
+	GPIO_PinState state = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_10);
+	LOG_INFO("PC10 set to Bypass mode (state: %d)", state);
 	return 0;
 }
 
