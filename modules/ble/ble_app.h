@@ -38,6 +38,9 @@ typedef enum {
   BLE_CONN_CONNECTED,
 } ble_connection_state_t;
 
+// Bypass 모드 RX 데이터 콜백
+typedef void (*ble_bypass_rx_callback_t)(const uint8_t *data, size_t len);
+
 typedef struct {
   char expected_response[32];     // 기대하는 응답 문자열 (예: "+OK", "+ERROR")
   char response_buf[BLE_AT_RESPONSE_MAX_SIZE];  // 실제 받은 응답
@@ -79,6 +82,9 @@ typedef struct {
   // 모드 및 연결 상태
   ble_mode_t current_mode;                 // 현재 모드 (AT/Bypass)
   ble_connection_state_t conn_state;       // BLE 연결 상태
+
+  // Bypass 모드 데이터 수신 콜백
+  ble_bypass_rx_callback_t bypass_rx_callback;
 } ble_instance_t;
 
 void ble_init_all(void);
@@ -110,5 +116,8 @@ void ble_set_connection_state(ble_connection_state_t state);
 
 // 현재 모드 조회
 ble_mode_t ble_get_current_mode(void);
+
+// Bypass 모드 RX 콜백 등록 (Bypass 모드에서 수신된 데이터를 전달받음)
+void ble_set_bypass_rx_callback(ble_bypass_rx_callback_t callback);
 
 #endif

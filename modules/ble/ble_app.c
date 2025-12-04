@@ -151,9 +151,12 @@ static void ble_rx_task(void *pvParameter) {
         total_received = len;
         LOG_DEBUG_RAW("BLE RX: ", &ble_recv[old_pos], len);
 
-        // AT 모드일 때만 파싱 (Bypass 모드에서는 파싱 건너뛰기)
+        // AT 모드일 때만 파싱, Bypass 모드에서는 콜백 호출
         if (inst->current_mode == BLE_MODE_AT) {
           ble_cmd_parse_process(inst, &ble_recv[old_pos], pos - old_pos);
+        } else if (inst->bypass_rx_callback != NULL) {
+          // Bypass 모드: 수신 데이터를 콜백으로 전달
+          inst->bypass_rx_callback((const uint8_t *)&ble_recv[old_pos], len);
         }
       } else {
         size_t len1 = BLE_UART_MAX_RECV_SIZE - old_pos;
@@ -161,13 +164,19 @@ static void ble_rx_task(void *pvParameter) {
         total_received = len1 + len2;
         LOG_DEBUG_RAW("BLE RX: ", &ble_recv[old_pos], len1);
 
-        // AT 모드일 때만 파싱
+        // AT 모드일 때만 파싱, Bypass 모드에서는 콜백 호출
         if (inst->current_mode == BLE_MODE_AT) {
           ble_cmd_parse_process(inst, &ble_recv[old_pos],
                                   BLE_UART_MAX_RECV_SIZE - old_pos);
           if (pos > 0) {
             LOG_DEBUG_RAW("BLE RX: ", ble_recv, len2);
             ble_cmd_parse_process(inst, ble_recv, pos);
+          }
+        } else if (inst->bypass_rx_callback != NULL) {
+          // Bypass 모드: circular buffer 처리
+          inst->bypass_rx_callback((const uint8_t *)&ble_recv[old_pos], len1);
+          if (pos > 0) {
+            inst->bypass_rx_callback((const uint8_t *)ble_recv, len2);
           }
         }
       }
@@ -196,6 +205,7 @@ void ble_init_all(void) {
   ble_instance.enabled = true;
   ble_instance.current_mode = BLE_MODE_BYPASS;  // 초기 모드는 Bypass
   ble_instance.conn_state = BLE_CONN_DISCONNECTED;  // 초기 연결 상태
+  ble_instance.bypass_rx_callback = NULL;  // 콜백 초기화
 
   if (ble_port_init_instance(&ble_instance.ble) != 0) {
     LOG_ERR("BLE 포트 초기화 실패");
@@ -273,6 +283,17 @@ bool ble_send(const char *data, size_t len, bool is_at) {
 
   if (!data || len == 0 || len > 512) {
     LOG_ERR("BLE invalid send parameters");
+    return false;
+  }
+
+  // AT 커맨드 전송 중에는 일반 전송 차단 (is_at=false 요청)
+  xSemaphoreTake(ble_instance.mutex, portMAX_DELAY);
+  bool is_at_mode = (ble_instance.current_mode == BLE_MODE_AT);
+  bool has_async_request = (ble_instance.async_request != NULL);
+  xSemaphoreGive(ble_instance.mutex);
+
+  if (is_at_mode && !is_at && has_async_request) {
+    LOG_WARN("BLE in AT command mode - blocking normal transmission");
     return false;
   }
 
@@ -523,4 +544,17 @@ ble_mode_t ble_get_current_mode(void) {
   xSemaphoreGive(ble_instance.mutex);
 
   return mode;
+}
+
+// Bypass 모드 RX 콜백 등록
+void ble_set_bypass_rx_callback(ble_bypass_rx_callback_t callback) {
+  if (!ble_instance.enabled) {
+    return;
+  }
+
+  xSemaphoreTake(ble_instance.mutex, portMAX_DELAY);
+  ble_instance.bypass_rx_callback = callback;
+  xSemaphoreGive(ble_instance.mutex);
+
+  LOG_INFO("BLE Bypass RX callback %s", callback ? "registered" : "unregistered");
 }
