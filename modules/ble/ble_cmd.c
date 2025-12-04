@@ -113,6 +113,43 @@ void ble_app_cmd_handler(ble_instance_t *inst)
 
 void ble_at_cmd_handler(ble_instance_t *inst)
 {
+    // 비동기 AT 커맨드 요청이 있는지 확인
+    if (inst->async_request != NULL && inst->async_request->status == BLE_AT_STATUS_PENDING) {
+        // 기대하는 응답과 매칭되는지 확인
+        size_t expected_len = strlen(inst->async_request->expected_response);
+        if (strncmp(inst->parser.data, inst->async_request->expected_response, expected_len) == 0) {
+            // 응답 저장
+            size_t data_len = strlen(inst->parser.data);
+            if (data_len < BLE_AT_RESPONSE_MAX_SIZE) {
+                memcpy(inst->async_request->response_buf, inst->parser.data, data_len);
+                inst->async_request->response_len = data_len;
+                inst->async_request->response_buf[data_len] = '\0';
+            } else {
+                memcpy(inst->async_request->response_buf, inst->parser.data, BLE_AT_RESPONSE_MAX_SIZE - 1);
+                inst->async_request->response_len = BLE_AT_RESPONSE_MAX_SIZE - 1;
+                inst->async_request->response_buf[BLE_AT_RESPONSE_MAX_SIZE - 1] = '\0';
+            }
+
+            // 상태 업데이트
+            if (strncmp(inst->parser.data, "+OK", 3) == 0) {
+                inst->async_request->status = BLE_AT_STATUS_COMPLETED;
+            } else if (strncmp(inst->parser.data, "+ERROR", 6) == 0) {
+                inst->async_request->status = BLE_AT_STATUS_ERROR;
+            } else {
+                inst->async_request->status = BLE_AT_STATUS_COMPLETED;
+            }
+
+            // 세마포어 해제 (대기 중인 태스크 깨우기)
+            if (inst->async_request->wait_sem != NULL) {
+                xSemaphoreGive(inst->async_request->wait_sem);
+            }
+
+            LOG_INFO("Async AT response matched: %s", inst->parser.data);
+            return;
+        }
+    }
+
+    // 비동기 요청이 없거나 매칭되지 않으면 기존 핸들러 실행
     for (int i = 0; bot_cmd_table[i].name != NULL; i++)
     {
         size_t name_len = strlen(bot_cmd_table[i].name);

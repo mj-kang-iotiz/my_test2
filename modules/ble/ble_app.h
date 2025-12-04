@@ -10,6 +10,7 @@
 #include <stdint.h>
 
 #define BLE_UART_MAX_RECV_SIZE 1024
+#define BLE_AT_RESPONSE_MAX_SIZE 256
 
 typedef enum
 {
@@ -18,6 +19,23 @@ typedef enum
   BLE_CMD_PARSE_STATE_DATA,
   BLE_CMD_PARSE_STATE_APP,
 }ble_cmd_parse_state_t;
+
+typedef enum {
+  BLE_AT_STATUS_IDLE,
+  BLE_AT_STATUS_PENDING,
+  BLE_AT_STATUS_COMPLETED,
+  BLE_AT_STATUS_TIMEOUT,
+  BLE_AT_STATUS_ERROR,
+} ble_at_status_t;
+
+typedef struct {
+  char expected_response[32];     // 기대하는 응답 문자열 (예: "+OK", "+ERROR")
+  char response_buf[BLE_AT_RESPONSE_MAX_SIZE];  // 실제 받은 응답
+  size_t response_len;
+  SemaphoreHandle_t wait_sem;     // 응답 대기용 세마포어
+  ble_at_status_t status;
+  TickType_t timeout_ticks;       // 타임아웃 (ticks)
+} ble_async_at_request_t;
 
 typedef struct {
   char data[512];
@@ -44,6 +62,9 @@ typedef struct {
   TaskHandle_t tx_task;
 
   SemaphoreHandle_t mutex;
+
+  // 비동기 AT 커맨드 요청
+  ble_async_at_request_t *async_request;
 } ble_instance_t;
 
 void ble_init_all(void);
@@ -51,5 +72,13 @@ void ble_init_all(void);
 ble_t *ble_get_handle(void);
 ble_instance_t* ble_get_instance(void);
 bool ble_send(const char *data, size_t len, bool is_at);
+
+// 비동기 AT 커맨드 전송 (응답 대기)
+ble_at_status_t ble_send_at_command_async(const char *at_cmd, const char *expected_response,
+                                           char *response_buf, size_t response_buf_size,
+                                           uint32_t timeout_ms);
+
+// 예시: BLE 디바이스 이름 설정 (AT+MANUF=<name>)
+bool ble_set_device_name_async(const char *device_name, uint32_t timeout_ms);
 
 #endif

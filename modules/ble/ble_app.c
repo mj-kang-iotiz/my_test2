@@ -278,3 +278,116 @@ bool ble_send(const char *data, size_t len, bool is_at) {
 
   return true;
 }
+
+// 비동기 AT 커맨드 전송 및 응답 대기
+ble_at_status_t ble_send_at_command_async(const char *at_cmd, const char *expected_response,
+                                           char *response_buf, size_t response_buf_size,
+                                           uint32_t timeout_ms) {
+  if (!ble_instance.enabled) {
+    LOG_ERR("BLE not enabled");
+    return BLE_AT_STATUS_ERROR;
+  }
+
+  if (!at_cmd || !expected_response) {
+    LOG_ERR("Invalid parameters");
+    return BLE_AT_STATUS_ERROR;
+  }
+
+  // 이미 진행 중인 비동기 요청이 있는지 확인
+  xSemaphoreTake(ble_instance.mutex, portMAX_DELAY);
+  if (ble_instance.async_request != NULL) {
+    xSemaphoreGive(ble_instance.mutex);
+    LOG_ERR("Another async AT command is pending");
+    return BLE_AT_STATUS_ERROR;
+  }
+
+  // 비동기 요청 구조체 생성 및 초기화
+  ble_async_at_request_t request = {0};
+  strncpy(request.expected_response, expected_response, sizeof(request.expected_response) - 1);
+  request.response_len = 0;
+  request.status = BLE_AT_STATUS_PENDING;
+  request.timeout_ticks = pdMS_TO_TICKS(timeout_ms);
+  request.wait_sem = xSemaphoreCreateBinary();
+
+  if (request.wait_sem == NULL) {
+    xSemaphoreGive(ble_instance.mutex);
+    LOG_ERR("Failed to create semaphore");
+    return BLE_AT_STATUS_ERROR;
+  }
+
+  // 전역 async_request 포인터 설정
+  ble_instance.async_request = &request;
+  xSemaphoreGive(ble_instance.mutex);
+
+  // AT 커맨드 전송
+  LOG_INFO("Sending AT command: %s", at_cmd);
+  if (!ble_send(at_cmd, strlen(at_cmd), true)) {
+    xSemaphoreTake(ble_instance.mutex, portMAX_DELAY);
+    ble_instance.async_request = NULL;
+    xSemaphoreGive(ble_instance.mutex);
+    vSemaphoreDelete(request.wait_sem);
+    LOG_ERR("Failed to send AT command");
+    return BLE_AT_STATUS_ERROR;
+  }
+
+  // 응답 대기 (타임아웃 포함)
+  LOG_INFO("Waiting for response: %s (timeout: %lu ms)", expected_response, timeout_ms);
+  BaseType_t result = xSemaphoreTake(request.wait_sem, request.timeout_ticks);
+
+  // 세마포어 해제 및 정리
+  vSemaphoreDelete(request.wait_sem);
+
+  xSemaphoreTake(ble_instance.mutex, portMAX_DELAY);
+  ble_at_status_t status = request.status;
+
+  // 응답 버퍼 복사 (사용자가 제공한 경우)
+  if (response_buf && response_buf_size > 0 && request.response_len > 0) {
+    size_t copy_len = (request.response_len < response_buf_size - 1) ?
+                      request.response_len : (response_buf_size - 1);
+    memcpy(response_buf, request.response_buf, copy_len);
+    response_buf[copy_len] = '\0';
+  }
+
+  ble_instance.async_request = NULL;
+  xSemaphoreGive(ble_instance.mutex);
+
+  if (result == pdFALSE) {
+    LOG_ERR("AT command timeout");
+    return BLE_AT_STATUS_TIMEOUT;
+  }
+
+  LOG_INFO("AT command completed with status: %d", status);
+  return status;
+}
+
+// 예시: BLE 디바이스 이름 설정 (AT+MANUF=<name>)
+bool ble_set_device_name_async(const char *device_name, uint32_t timeout_ms) {
+  if (!device_name) {
+    LOG_ERR("Device name is NULL");
+    return false;
+  }
+
+  // AT+MANUF=<name>\n 커맨드 생성
+  char at_cmd[64];
+  snprintf(at_cmd, sizeof(at_cmd), "AT+MANUF=%s\n", device_name);
+
+  // 응답 버퍼
+  char response[BLE_AT_RESPONSE_MAX_SIZE];
+
+  // 비동기 AT 커맨드 전송 (+OK 응답 기대)
+  ble_at_status_t status = ble_send_at_command_async(at_cmd, "+OK", response, sizeof(response), timeout_ms);
+
+  if (status == BLE_AT_STATUS_COMPLETED) {
+    LOG_INFO("Device name set successfully: %s", device_name);
+    return true;
+  } else if (status == BLE_AT_STATUS_TIMEOUT) {
+    LOG_ERR("Device name setting timeout");
+    return false;
+  } else if (status == BLE_AT_STATUS_ERROR) {
+    LOG_ERR("Device name setting error: %s", response);
+    return false;
+  }
+
+  LOG_ERR("Device name setting failed with status: %d", status);
+  return false;
+}
