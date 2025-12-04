@@ -488,12 +488,8 @@ bool ubx_set_fixed_position(gps_t* gps, const char* lat_str, const char* lon_str
     int32_t lon_e7 = (int32_t)(lon_deg * 1e7);  // degrees * 1e-7
     int32_t height_cm = (int32_t)(alt_m * 100); // cm
 
-    ubx_cfg_item_t tmode_configs[4] = {
-        {
-            .key_id = CFG_TMODE_MODE,
-            .value = {2},  // 2 = Fixed mode
-            .value_len = 1,
-        },
+    // STEP 1: 위치 정보 먼저 설정 (Mode는 아직 비활성화 상태)
+    ubx_cfg_item_t position_configs[3] = {
         {
             .key_id = CFG_TMODE_LLH_LAT,
             .value = {
@@ -526,13 +522,29 @@ bool ubx_set_fixed_position(gps_t* gps, const char* lat_str, const char* lon_str
         },
     };
 
-    bool result = ubx_send_valset_sync(gps, UBX_CFG_LAYER_RAM, tmode_configs, 4, 3000);
+    bool result = ubx_send_valset_sync(gps, UBX_CFG_LAYER_RAM, position_configs, 3, 3000);
+
+    if (!result) {
+        LOG_ERR("Failed to set position coordinates\n");
+        return false;
+    }
+
+    LOG_DEBUG("Position set (lat: %s, lon: %s, alt: %s m)\n",
+              lat_str, lon_str, alt_str);
+
+    // STEP 2: 위치 설정 완료 후 Fixed 모드 활성화
+    ubx_cfg_item_t mode_config = {
+        .key_id = CFG_TMODE_MODE,
+        .value = {2},  // 2 = Fixed mode
+        .value_len = 1,
+    };
+
+    result = ubx_send_valset_sync(gps, UBX_CFG_LAYER_RAM, &mode_config, 1, 3000);
 
     if (result) {
-        LOG_DEBUG("Fixed position set (lat: %s, lon: %s, alt: %s m)\n",
-                  lat_str, lon_str, alt_str);
+        LOG_DEBUG("Fixed mode enabled\n");
     } else {
-        LOG_ERR("Failed to set fixed position\n");
+        LOG_ERR("Failed to enable fixed mode\n");
     }
 
     return result;
