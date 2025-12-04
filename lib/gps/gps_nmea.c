@@ -45,21 +45,31 @@ static void parse_nmea_gga(gps_t *gps) {
     break;
 
   case 2: // lat
-    gps->nmea_data.gga.lat = parse_lat_lon(gps);
+    if (gps->nmea.term_pos > 0) {
+      gps->nmea_data.gga.lat = parse_lat_lon(gps);
+    }
     break;
 
   case 3: // NS
-    // S면 위도 음수
     gps->nmea_data.gga.ns = gps->nmea.term_str[0];
+    // S면 위도 음수
+    if (gps->nmea.term_str[0] == 'S') {
+      gps->nmea_data.gga.lat = -gps->nmea_data.gga.lat;
+    }
     break;
 
   case 4: // lon
-    gps->nmea_data.gga.lon = parse_lat_lon(gps);
+    if (gps->nmea.term_pos > 0) {
+      gps->nmea_data.gga.lon = parse_lat_lon(gps);
+    }
     break;
 
   case 5: // EW
-    // W면 경도 음수
     gps->nmea_data.gga.ew = gps->nmea.term_str[0];
+    // W면 경도 음수
+    if (gps->nmea.term_str[0] == 'W') {
+      gps->nmea_data.gga.lon = -gps->nmea_data.gga.lon;
+    }
     break;
 
   case 6: // quality(fix)
