@@ -344,8 +344,25 @@ void gps_parse_process(gps_t *gps, const void *data, size_t len) {
     }
     else if( gps->protocol == GPS_PROTOCOL_UNICORE_BIN)
     {
-      add_payload(gps, *d);
-      gps_parse_unicore_bin(gps);
+      // UNICORE 파싱 중 NMEA 시작 감지 시 프로토콜 전환
+      if (*d == '$') {
+        // UNICORE 파싱 중단, NMEA로 전환
+        gps->protocol = GPS_PROTOCOL_NONE;
+        gps->state = GPS_PARSE_STATE_NONE;
+        memset(gps->payload, 0, sizeof(gps->payload));
+        gps->pos = 0;
+
+        // NMEA 파싱 시작
+        memset(gps->nmea.term_str, 0, sizeof(gps->nmea.term_str));
+        gps->nmea.term_pos = 0;
+        gps->nmea.term_num = 0;
+        memset(&gps->nmea, 0, sizeof(gps->nmea));
+        gps->protocol = GPS_PROTOCOL_NMEA;
+        gps->state = GPS_PARSE_STATE_NMEA_START;
+      } else {
+        add_payload(gps, *d);
+        gps_parse_unicore_bin(gps);
+      }
     }
     else if (gps->protocol == GPS_PROTOCOL_RTCM) {
       add_payload(gps, *d);
