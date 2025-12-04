@@ -151,20 +151,24 @@ int ble_uart5_hw_init(void) {
   // 1. DMA 초기화 (DMA는 나중에 comm_start에서 시작)
   ble_uart5_dma_init();
 
-  // 2. UART 9600bps로 초기화 (폴링 모드로 AT 커맨드 처리)
+  // 2. UART 9600bps로 초기화 및 활성화
   ble_uart5_init();
+  LL_USART_Enable(UART5);
   LOG_INFO("BLE UART initialized at 9600 bps");
 
   // 3. AT 커맨드 모드로 전환
+  //    - UART를 먼저 활성화한 후 모드 전환 (부팅 메시지 수신 위해)
   //    - 에지 트리거를 위해 Low → High 순서로 토글
   ble_set_bypass_mode();  // Low
   HAL_Delay(100);
   ble_set_at_cmd_mode();  // High (AT 모드)
-  HAL_Delay(100);
+  HAL_Delay(500);  // BLE 모듈 부팅 및 안정화 대기
 
-  // UART 활성화 (폴링 방식으로 AT 커맨드 처리)
-  LL_USART_Enable(UART5);
-  HAL_Delay(500);  // BLE 모듈 부팅 대기
+  // 부팅 메시지 버퍼 클리어 (예: +READY 등)
+  while (LL_USART_IsActiveFlag_RXNE(UART5)) {
+    (void)LL_USART_ReceiveData8(UART5);  // 버퍼 비우기
+  }
+  LOG_INFO("UART RX buffer cleared");
 
   // 4. 자동 baudrate 감지 및 설정
   LOG_INFO("Auto-detecting BLE module baudrate...");
@@ -269,7 +273,7 @@ static int ble_uart5_recv_line_poll(char *buf, size_t buf_size, uint32_t timeout
 
     buf[pos++] = (char)byte;
 
-    // \n 수신 시 종료
+    // \r 수신 시 종료 (다음 바이트 \n은 무시됨)
     if (byte == '\r') {
       buf[pos] = '\0';
       return pos;
@@ -374,6 +378,12 @@ static int ble_send_uart_change_command(uint32_t baudrate, uint32_t timeout_ms) 
   //    BLE 모듈도 이 시점에 속도를 변경하기 시작함
   LOG_INFO("Changing MCU UART to %lu bps...", baudrate);
   ble_uart5_change_baudrate(baudrate);
+
+  // 버퍼 클리어 (속도 변경 중 잘못된 데이터가 있을 수 있음)
+  HAL_Delay(10);  // UART 안정화 대기
+  while (LL_USART_IsActiveFlag_RXNE(UART5)) {
+    (void)LL_USART_ReceiveData8(UART5);
+  }
 
   // 3. 2초 대기 (매뉴얼 명시 - BLE 모듈이 baudrate 변경 완료하는 시간)
   LOG_INFO("Waiting 2 seconds for BLE module baudrate change...");
