@@ -140,7 +140,8 @@ int ble_uart5_comm_start(void) {
 int ble_uart5_hw_init(void) {
   ble_uart5_dma_init();
   ble_uart5_init();
-  ble_set_at_cmd_mode();
+  // 초기화 시 Bypass 모드로 시작 (설정 필요 시 AT 모드로 전환)
+  ble_set_bypass_mode();
 
   return 0;
 }

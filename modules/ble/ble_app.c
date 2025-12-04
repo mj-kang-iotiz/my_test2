@@ -319,6 +319,15 @@ ble_at_status_t ble_send_at_command_async(const char *at_cmd, const char *expect
   ble_instance.async_request = &request;
   xSemaphoreGive(ble_instance.mutex);
 
+  // AT 모드로 전환
+  LOG_INFO("Switching to AT command mode");
+  if (ble_instance.ble.ops && ble_instance.ble.ops->at_mode) {
+    ble_instance.ble.ops->at_mode();
+  }
+
+  // 모드 전환 대기 (BLE 모듈이 안정화될 시간)
+  vTaskDelay(pdMS_TO_TICKS(100));
+
   // AT 커맨드 전송
   LOG_INFO("Sending AT command: %s", at_cmd);
   if (!ble_send(at_cmd, strlen(at_cmd), true)) {
@@ -351,6 +360,12 @@ ble_at_status_t ble_send_at_command_async(const char *at_cmd, const char *expect
   ble_instance.async_request = NULL;
   xSemaphoreGive(ble_instance.mutex);
 
+  // Bypass 모드로 전환 (응답 수신 후)
+  LOG_INFO("Switching to bypass mode");
+  if (ble_instance.ble.ops && ble_instance.ble.ops->bypass_mode) {
+    ble_instance.ble.ops->bypass_mode();
+  }
+
   if (result == pdFALSE) {
     LOG_ERR("AT command timeout");
     return BLE_AT_STATUS_TIMEOUT;
@@ -360,16 +375,16 @@ ble_at_status_t ble_send_at_command_async(const char *at_cmd, const char *expect
   return status;
 }
 
-// 예시: BLE 디바이스 이름 설정 (AT+MANUF=<name>)
+// BLE 디바이스 이름 설정 (AT+MANUF=<name>)
 bool ble_set_device_name_async(const char *device_name, uint32_t timeout_ms) {
   if (!device_name) {
     LOG_ERR("Device name is NULL");
     return false;
   }
 
-  // AT+MANUF=<name>\n 커맨드 생성
+  // AT+MANUF=<name>\r\n 커맨드 생성
   char at_cmd[64];
-  snprintf(at_cmd, sizeof(at_cmd), "AT+MANUF=%s\n", device_name);
+  snprintf(at_cmd, sizeof(at_cmd), "AT+MANUF=%s\r\n", device_name);
 
   // 응답 버퍼
   char response[BLE_AT_RESPONSE_MAX_SIZE];
@@ -390,4 +405,61 @@ bool ble_set_device_name_async(const char *device_name, uint32_t timeout_ms) {
 
   LOG_ERR("Device name setting failed with status: %d", status);
   return false;
+}
+
+// BLE UART 통신 속도 설정 (AT+UART=<baudrate>)
+bool ble_set_uart_baudrate_async(uint32_t baudrate, uint32_t timeout_ms) {
+  // AT+UART=<baudrate>\r\n 커맨드 생성
+  char at_cmd[64];
+  snprintf(at_cmd, sizeof(at_cmd), "AT+UART=%lu\r\n", baudrate);
+
+  // 응답 버퍼
+  char response[BLE_AT_RESPONSE_MAX_SIZE];
+
+  // 비동기 AT 커맨드 전송 (+OK 응답 기대)
+  ble_at_status_t status = ble_send_at_command_async(at_cmd, "+OK", response, sizeof(response), timeout_ms);
+
+  if (status == BLE_AT_STATUS_COMPLETED) {
+    LOG_INFO("UART baudrate set successfully: %lu", baudrate);
+    return true;
+  } else if (status == BLE_AT_STATUS_TIMEOUT) {
+    LOG_ERR("UART baudrate setting timeout");
+    return false;
+  } else if (status == BLE_AT_STATUS_ERROR) {
+    LOG_ERR("UART baudrate setting error: %s", response);
+    return false;
+  }
+
+  LOG_ERR("UART baudrate setting failed with status: %d", status);
+  return false;
+}
+
+// BLE 초기 설정 시퀀스 (디바이스 이름 + UART 속도 설정)
+bool ble_configure_async(const char *device_name, uint32_t baudrate) {
+  const uint32_t timeout_ms = 5000;  // 5초 타임아웃
+
+  LOG_INFO("BLE configuration started");
+
+  // 1. 디바이스 이름 설정
+  if (device_name != NULL) {
+    LOG_INFO("Setting device name: %s", device_name);
+    if (!ble_set_device_name_async(device_name, timeout_ms)) {
+      LOG_ERR("Failed to set device name");
+      return false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(100));  // 커맨드 간 대기
+  }
+
+  // 2. UART 속도 설정
+  if (baudrate > 0) {
+    LOG_INFO("Setting UART baudrate: %lu", baudrate);
+    if (!ble_set_uart_baudrate_async(baudrate, timeout_ms)) {
+      LOG_ERR("Failed to set UART baudrate");
+      return false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(100));  // 커맨드 간 대기
+  }
+
+  LOG_INFO("BLE configuration completed successfully");
+  return true;
 }
