@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include "gps_ubx.h"
 #include "ubx_init.h"
 
@@ -36,6 +37,14 @@
 
 #define CFG_UART2INPROT_RTCM3X (0x10750004U)
 #define CFG_UART2OUTPROT_RTCM3X (0x10760004U)
+
+/* Time Mode 설정 */
+#define CFG_TMODE_MODE (0x20030001U)           // E1: 0=disable, 1=survey-in, 2=fixed
+#define CFG_TMODE_SVIN_MIN_DUR (0x40030010U)   // U4: Survey-in minimum duration (seconds)
+#define CFG_TMODE_SVIN_ACC_LIMIT (0x40030011U) // U4: Survey-in accuracy limit (0.1mm units)
+#define CFG_TMODE_LLH_LAT (0x40030009U)        // I4: Latitude (degrees * 1e-7)
+#define CFG_TMODE_LLH_LON (0x4003000aU)        // I4: Longitude (degrees * 1e-7)
+#define CFG_TMODE_LLH_HEIGHT (0x4003000bU)     // I4: Height above mean sea level (cm)
 
 
 static const ubx_cfg_item_t ublox_base_configs[] = {
@@ -398,6 +407,164 @@ bool ubx_factory_reset(gps_t* gps, ubx_init_complete_callback_t callback, void *
 
     return true;
 
+}
+
+/**
+ * @brief Survey-in 모드 시작
+ *
+ * @param gps GPS 구조체
+ * @param min_duration Survey-in 최소 지속 시간 (초), 기본값 300초
+ * @param accuracy_limit Survey-in 정확도 제한 (0.1mm 단위), 기본값 50000 (5m)
+ * @return true 성공, false 실패
+ */
+bool ubx_set_survey_in_mode(gps_t* gps, uint32_t min_duration, uint32_t accuracy_limit)
+{
+    if (!gps) {
+        return false;
+    }
+
+    ubx_cfg_item_t tmode_configs[3] = {
+        {
+            .key_id = CFG_TMODE_MODE,
+            .value = {1},  // 1 = Survey-in mode
+            .value_len = 1,
+        },
+        {
+            .key_id = CFG_TMODE_SVIN_MIN_DUR,
+            .value = {
+                (min_duration & 0xFF),
+                (min_duration >> 8) & 0xFF,
+                (min_duration >> 16) & 0xFF,
+                (min_duration >> 24) & 0xFF
+            },
+            .value_len = 4,
+        },
+        {
+            .key_id = CFG_TMODE_SVIN_ACC_LIMIT,
+            .value = {
+                (accuracy_limit & 0xFF),
+                (accuracy_limit >> 8) & 0xFF,
+                (accuracy_limit >> 16) & 0xFF,
+                (accuracy_limit >> 24) & 0xFF
+            },
+            .value_len = 4,
+        },
+    };
+
+    bool result = ubx_send_valset_sync(gps, UBX_CFG_LAYER_RAM, tmode_configs, 3, 3000);
+
+    if (result) {
+        LOG_DEBUG("Survey-in mode started (duration: %u s, accuracy: %u mm)\n",
+                  min_duration, accuracy_limit / 10);
+    } else {
+        LOG_ERR("Failed to start survey-in mode\n");
+    }
+
+    return result;
+}
+
+/**
+ * @brief Fixed 모드 설정 (수동 좌표 입력)
+ *
+ * @param gps GPS 구조체
+ * @param lat_str 위도 문자열 (degrees, 예: "37.12345")
+ * @param lon_str 경도 문자열 (degrees, 예: "127.12345")
+ * @param alt_str 고도 문자열 (meters, 예: "100.5")
+ * @return true 성공, false 실패
+ */
+bool ubx_set_fixed_position(gps_t* gps, const char* lat_str, const char* lon_str, const char* alt_str)
+{
+    if (!gps || !lat_str || !lon_str || !alt_str) {
+        return false;
+    }
+
+    // 문자열을 double로 변환
+    double lat_deg = strtod(lat_str, NULL);
+    double lon_deg = strtod(lon_str, NULL);
+    double alt_m = strtod(alt_str, NULL);
+
+    // u-blox 포맷으로 변환
+    int32_t lat_e7 = (int32_t)(lat_deg * 1e7);  // degrees * 1e-7
+    int32_t lon_e7 = (int32_t)(lon_deg * 1e7);  // degrees * 1e-7
+    int32_t height_cm = (int32_t)(alt_m * 100); // cm
+
+    ubx_cfg_item_t tmode_configs[4] = {
+        {
+            .key_id = CFG_TMODE_MODE,
+            .value = {2},  // 2 = Fixed mode
+            .value_len = 1,
+        },
+        {
+            .key_id = CFG_TMODE_LLH_LAT,
+            .value = {
+                (lat_e7 & 0xFF),
+                (lat_e7 >> 8) & 0xFF,
+                (lat_e7 >> 16) & 0xFF,
+                (lat_e7 >> 24) & 0xFF
+            },
+            .value_len = 4,
+        },
+        {
+            .key_id = CFG_TMODE_LLH_LON,
+            .value = {
+                (lon_e7 & 0xFF),
+                (lon_e7 >> 8) & 0xFF,
+                (lon_e7 >> 16) & 0xFF,
+                (lon_e7 >> 24) & 0xFF
+            },
+            .value_len = 4,
+        },
+        {
+            .key_id = CFG_TMODE_LLH_HEIGHT,
+            .value = {
+                (height_cm & 0xFF),
+                (height_cm >> 8) & 0xFF,
+                (height_cm >> 16) & 0xFF,
+                (height_cm >> 24) & 0xFF
+            },
+            .value_len = 4,
+        },
+    };
+
+    bool result = ubx_send_valset_sync(gps, UBX_CFG_LAYER_RAM, tmode_configs, 4, 3000);
+
+    if (result) {
+        LOG_DEBUG("Fixed position set (lat: %s, lon: %s, alt: %s m)\n",
+                  lat_str, lon_str, alt_str);
+    } else {
+        LOG_ERR("Failed to set fixed position\n");
+    }
+
+    return result;
+}
+
+/**
+ * @brief Time Mode 비활성화
+ *
+ * @param gps GPS 구조체
+ * @return true 성공, false 실패
+ */
+bool ubx_disable_time_mode(gps_t* gps)
+{
+    if (!gps) {
+        return false;
+    }
+
+    ubx_cfg_item_t tmode_config = {
+        .key_id = CFG_TMODE_MODE,
+        .value = {0},  // 0 = Disabled
+        .value_len = 1,
+    };
+
+    bool result = ubx_send_valset_sync(gps, UBX_CFG_LAYER_RAM, &tmode_config, 1, 3000);
+
+    if (result) {
+        LOG_DEBUG("Time mode disabled\n");
+    } else {
+        LOG_ERR("Failed to disable time mode\n");
+    }
+
+    return result;
 }
 
 
