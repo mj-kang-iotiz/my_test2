@@ -137,9 +137,6 @@ uint8_t gps_parse_nmea_term(gps_t *gps) {
         if (is_talker_gn) {
           gps->nmea.msg_type = GPS_NMEA_MSG_GGA;
 
-          // GGA 데이터 초기화 (이전 데이터가 남지 않도록)
-          memset(&gps->nmea_data.gga, 0, sizeof(gps->nmea_data.gga));
-
 #if defined(USE_STORE_RAW_GGA)
           gps->nmea_data.gga_raw_pos = 0;
           _gps_gga_raw_add(gps, '$');
