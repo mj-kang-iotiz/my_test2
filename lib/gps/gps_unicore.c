@@ -75,15 +75,28 @@ uint8_t gps_parse_unicore_bin(gps_t *gps) {
     gps->state = GPS_PARSE_STATE_UNICORE_MESSAGE_ID;
   } else if (gps->pos == 8) {
     gps->unicore_bin.header.message_len = (uint16_t)gps->payload[6] | ((uint16_t)gps->payload[7] << 8);
+
+    // message_len 검증: GPS_PAYLOAD_SIZE 초과 시 에러 처리
+    // 최대 허용 크기 = GPS_PAYLOAD_SIZE - HEADER - CRC
+    if (gps->unicore_bin.header.message_len > GPS_PAYLOAD_SIZE - GPS_UNICORE_BIN_HEADER_SIZE - 4) {
+      // 비정상적인 길이 → 프로토콜 리셋
+      gps->protocol = GPS_PROTOCOL_NONE;
+      gps->state = GPS_PARSE_STATE_NONE;
+      memset(gps->payload, 0, sizeof(gps->payload));
+      gps->pos = 0;
+      return 0;
+    }
+
     gps->state = GPS_PARSE_STATE_UNICORE_MESSAGE_LEN;
-  } 
+  }
    else {
     uint16_t message_len = gps->unicore_bin.header.message_len;
+    uint16_t expected_total_len = message_len + GPS_UNICORE_BIN_HEADER_SIZE + 4;
 
     if (gps->pos <= message_len + GPS_UNICORE_BIN_HEADER_SIZE) {
       gps->state = GPS_PARSE_STATE_UNICORE_PAYLOAD;
-    } 
-     else if (gps->pos == message_len + GPS_UNICORE_BIN_HEADER_SIZE + 4) {
+    }
+     else if (gps->pos == expected_total_len) {
       gps->state = GPS_PARSE_STATE_UNICORE_CRC;
       memcpy(&gps->unicore_bin.crc32, &gps->payload[message_len + GPS_UNICORE_BIN_HEADER_SIZE], 4);
 
@@ -91,7 +104,7 @@ uint8_t gps_parse_unicore_bin(gps_t *gps) {
         store_unicore_bin_data(gps);
 
         memcpy(&gps->unicore_bin.header, gps->payload, GPS_UNICORE_BIN_HEADER_SIZE);
-        
+
         gps_msg_t msg;
         msg.unicore_bin.msg = gps->unicore_bin.header.message_id;
         gps->handler(gps, GPS_EVENT_DATA_PARSED, GPS_PROTOCOL_UNICORE_BIN, msg);
@@ -112,6 +125,14 @@ uint8_t gps_parse_unicore_bin(gps_t *gps) {
         gps->pos = 0;
         return 0;
       }
+    }
+     else if (gps->pos > expected_total_len) {
+      // pos가 예상 위치를 넘어섬 → 에러, 프로토콜 리셋
+      gps->protocol = GPS_PROTOCOL_NONE;
+      gps->state = GPS_PARSE_STATE_NONE;
+      memset(gps->payload, 0, sizeof(gps->payload));
+      gps->pos = 0;
+      return 0;
     }
   }
 
