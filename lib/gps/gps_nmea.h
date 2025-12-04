@@ -5,7 +5,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define GPS_NMEA_TERM_SIZE 13
+#define GPS_NMEA_TERM_SIZE 20
 
 /**
  * @brief GGA quality fix 상태

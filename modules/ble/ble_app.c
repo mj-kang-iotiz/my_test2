@@ -10,6 +10,8 @@
 
 #include "log.h"
 
+bool ble_set_advon_async(uint32_t timeout_ms);
+
 void ble_cmd_parse_process(ble_instance_t *inst, const void *data, size_t len)
 {
   const uint8_t *d = data;
@@ -135,7 +137,9 @@ static void ble_rx_task(void *pvParameter) {
   uint8_t dummy = 0;
   size_t total_received = 0;
 
-  LOG_INFO("BLE RX Task started");
+  LOG_INFO("BLE RX Task started");  
+  vTaskDelay(pdMS_TO_TICKS(50));
+  ble_set_advon_async(1000);
 
   while (1) {
     xQueueReceive(inst->rx_queue, &dummy, portMAX_DELAY);
@@ -150,12 +154,9 @@ static void ble_rx_task(void *pvParameter) {
         size_t len = pos - old_pos;
         total_received = len;
         LOG_DEBUG_RAW("BLE RX: ", &ble_recv[old_pos], len);
-
-        // AT 모드일 때만 파싱, Bypass 모드에서는 콜백 호출
         if (inst->current_mode == BLE_MODE_AT) {
-          ble_cmd_parse_process(inst, &ble_recv[old_pos], pos - old_pos);
+          ble_cmd_parse_process(inst, &ble_recv[old_pos], len);
         } else if (inst->bypass_rx_callback != NULL) {
-          // Bypass 모드: 수신 데이터를 콜백으로 전달
           inst->bypass_rx_callback((const uint8_t *)&ble_recv[old_pos], len);
         }
       } else {
@@ -163,8 +164,6 @@ static void ble_rx_task(void *pvParameter) {
         size_t len2 = pos;
         total_received = len1 + len2;
         LOG_DEBUG_RAW("BLE RX: ", &ble_recv[old_pos], len1);
-
-        // AT 모드일 때만 파싱, Bypass 모드에서는 콜백 호출
         if (inst->current_mode == BLE_MODE_AT) {
           ble_cmd_parse_process(inst, &ble_recv[old_pos],
                                   BLE_UART_MAX_RECV_SIZE - old_pos);
@@ -173,7 +172,6 @@ static void ble_rx_task(void *pvParameter) {
             ble_cmd_parse_process(inst, ble_recv, pos);
           }
         } else if (inst->bypass_rx_callback != NULL) {
-          // Bypass 모드: circular buffer 처리
           inst->bypass_rx_callback((const uint8_t *)&ble_recv[old_pos], len1);
           if (pos > 0) {
             inst->bypass_rx_callback((const uint8_t *)ble_recv, len2);
@@ -310,7 +308,6 @@ bool ble_send(const char *data, size_t len, bool is_at) {
   return true;
 }
 
-// 비동기 AT 커맨드 전송 및 응답 대기
 ble_at_status_t ble_send_at_command_async(const char *at_cmd, const char *expected_response,
                                            char *response_buf, size_t response_buf_size,
                                            uint32_t timeout_ms) {
@@ -361,7 +358,7 @@ ble_at_status_t ble_send_at_command_async(const char *at_cmd, const char *expect
   xSemaphoreGive(ble_instance.mutex);
 
   // 모드 전환 대기 (BLE 모듈이 안정화될 시간)
-  vTaskDelay(pdMS_TO_TICKS(100));
+  vTaskDelay(pdMS_TO_TICKS(50));
 
   // AT 커맨드 전송
   LOG_INFO("Sending AT command: %s", at_cmd);
@@ -423,7 +420,7 @@ bool ble_set_device_name_async(const char *device_name, uint32_t timeout_ms) {
 
   // AT+MANUF=<name>\r\n 커맨드 생성
   char at_cmd[64];
-  snprintf(at_cmd, sizeof(at_cmd), "AT+MANUF=%s\r\n", device_name);
+  snprintf(at_cmd, sizeof(at_cmd), "AT+MANUF=%s\r", device_name);
 
   // 응답 버퍼
   char response[BLE_AT_RESPONSE_MAX_SIZE];
@@ -445,6 +442,33 @@ bool ble_set_device_name_async(const char *device_name, uint32_t timeout_ms) {
   LOG_ERR("Device name setting failed with status: %d", status);
   return false;
 }
+
+bool ble_set_advon_async(uint32_t timeout_ms) {
+  // AT+MANUF=<name>\r\n 커맨드 생성
+  char at_cmd[16];
+  snprintf(at_cmd, sizeof(at_cmd), "AT+ADVON\r");
+
+  // 응답 버퍼
+  char response[BLE_AT_RESPONSE_MAX_SIZE];
+
+  // 비동기 AT 커맨드 전송 (+OK 응답 기대)
+  ble_at_status_t status = ble_send_at_command_async(at_cmd, "+OK", response, sizeof(response), timeout_ms);
+
+  if (status == BLE_AT_STATUS_COMPLETED) {
+    LOG_INFO("advon successfully");
+    return true;
+  } else if (status == BLE_AT_STATUS_TIMEOUT) {
+    LOG_ERR("timeout");
+    return false;
+  } else if (status == BLE_AT_STATUS_ERROR) {
+    LOG_ERR("setting error: %s", response);
+    return false;
+  }
+
+  LOG_ERR("setting failed with status: %d", status);
+  return false;
+}
+
 
 // BLE UART 통신 속도 설정 (AT+UART=<baudrate>)
 bool ble_set_uart_baudrate_async(uint32_t baudrate, uint32_t timeout_ms) {
@@ -489,15 +513,17 @@ bool ble_configure_async(const char *device_name, uint32_t baudrate) {
     vTaskDelay(pdMS_TO_TICKS(100));  // 커맨드 간 대기
   }
 
-  // 2. UART 속도 설정
-  if (baudrate > 0) {
-    LOG_INFO("Setting UART baudrate: %lu", baudrate);
-    if (!ble_set_uart_baudrate_async(baudrate, timeout_ms)) {
-      LOG_ERR("Failed to set UART baudrate");
-      return false;
-    }
-    vTaskDelay(pdMS_TO_TICKS(100));  // 커맨드 간 대기
-  }
+  // // 2. UART 속도 설정
+  // if (baudrate > 0) {
+  //   LOG_INFO("Setting UART baudrate: %lu", baudrate);
+  //   if (!ble_set_uart_baudrate_async(baudrate, timeout_ms)) {
+  //     LOG_ERR("Failed to set UART baudrate");
+  //     return false;
+  //   }
+  //   vTaskDelay(pdMS_TO_TICKS(100));  // 커맨드 간 대기
+  // }
+
+
 
   LOG_INFO("BLE configuration completed successfully");
   return true;

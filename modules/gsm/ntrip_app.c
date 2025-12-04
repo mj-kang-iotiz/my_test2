@@ -531,3 +531,9 @@ int ntrip_send_gga_data(const char *data, uint8_t len)
 
   return len;
 }
+
+
+bool ntrip_gga_send_queue_initialized(void)
+{
+  return g_gga_send_queue != NULL;
+}

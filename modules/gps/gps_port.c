@@ -10,6 +10,7 @@
 #include "stm32f4xx_ll_system.h"
 #include "stm32f4xx_ll_usart.h"
 #include "stm32f4xx_ll_utils.h"
+#include "f9p_baudrate_config.h"
 
 #ifndef TAG
 #define TAG "GPS_PORT"
@@ -134,6 +135,17 @@ int gps_rtk_uart2_init(void)
 {
   gps_uart2_dma_init();
   gps_uart2_init();
+
+  const board_config_t *config = board_get_config();
+  if(config->board == BOARD_TYPE_ROVER_F9P || config->board == BOARD_TYPE_BASE_F9P)
+  {
+    // F9P 보드일 경우 보드레이트를 115200으로 변경 (DMA 활성화 전)
+    LOG_INFO("Changing F9P UART1 baudrate to 115200...");
+    gps_rtk_gpio_start();
+    LL_USART_Enable(USART2);
+    f9p_init_uart1_baudrate_115200();
+    LL_USART_Disable(USART2);
+  }
 
   return 0;
 }
@@ -273,7 +285,6 @@ int gps_port_init_instance(gps_t *gps_handle, gps_id_t id, gps_type_t type)
   LOG_INFO("GPS[%d] Port 초기화 시작 (보드: %d, GPS 타입: %s)", id,
            config->board, type == GPS_TYPE_F9P ? "F9P" : "UM982");
 
-  // ✅ 보드 타입과 GPS ID에 따라 적절한 UART 선택
   if (config->board == BOARD_TYPE_BASE_UM982 ||
       config->board == BOARD_TYPE_BASE_F9P)
   {
@@ -423,6 +434,21 @@ int gps_rtk_uart4_init(void)
 {
   gps_uart4_dma_init();
   gps_uart4_init();
+
+  const board_config_t *config = board_get_config();
+
+  if(config->board == BOARD_TYPE_ROVER_F9P || config->board == BOARD_TYPE_BASE_F9P)
+
+  {
+
+    // F9P 보드일 경우 보드레이트를 115200으로 변경 (DMA 활성화 전)
+
+    LOG_INFO("Changing F9P UART2 baudrate to 115200...");
+    gps_rtk_uart4_gpio_start();
+    LL_USART_Enable(UART4);
+    f9p_init_rover_uart1_baudrate_115200();
+    LL_USART_Disable(UART4);
+  }
 
   return 0;
 }

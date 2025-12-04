@@ -9,6 +9,7 @@
 #include "led.h"
 #include <string.h>
 #include "ubx_init.h"
+#include "flash_params.h"
 
 #ifndef TAG
   #define TAG "GPS_APP"
@@ -18,8 +19,16 @@
 
 #define GPS_UART_MAX_RECV_SIZE 2048
 
-#define GGA_AVG_SIZE 50
-#define HP_AVG_SIZE 50
+#define GGA_AVG_SIZE 20
+#define HP_AVG_SIZE 20
+
+static bool gps_init_um982_base_fixed_async_internal(gps_id_t id, double lat, double lon, double alt,
+
+                                                      gps_init_callback_t callback, void *user_data);
+
+static bool gps_init_um982_base_surveyin_async_internal(gps_id_t id, uint32_t time_sec, float accuracy_m,
+
+                                                         gps_init_callback_t callback, void *user_data);
 
 typedef struct {
   int32_t lon[HP_AVG_SIZE];
@@ -196,13 +205,14 @@ static const char *um982_base_cmds[] = {
   "unmask GPS\r\n",
   "unmask GLO\r\n",
   "unmask GAL\r\n",
-  "MODE BASE TIME 120\r\n",
+  // "MODE BASE TIME 180\r\n",
+  // "mode base lat Lon height\r\n", // lat=40.07898324818,lon=116.23660197714,height=60.4265
   "rtcm1033 com1 10\r\n",
   "rtcm1006 com1 10\r\n",
-  "rtcm1074 com1 2\r\n",
-  "rtcm1124 com1 2\r\n",
-  "rtcm1084 com1 2\r\n",
-  "rtcm1094 com1 2\r\n",
+  "rtcm1074 com1 2\r\n", // gps msm4
+  // "rtcm1124 com1 2\r\n", // beidou msm4
+  // "rtcm1084 com1 2\r\n", // glonass msm4
+  "rtcm1094 com1 2\r\n", // galileo msm4
   "gpgga com1 1\r\n",
   // "gpgsv com1 1\r\n",
   "BESTNAVB 1\r\n",
@@ -217,10 +227,10 @@ static const char *um982_rover_cmds[] = {
   "gpgga com1 1\r\n",
   // "gpgsv com1 1\r\n",
   "gpths com1 1\r\n",
-  "OBSVHA COM1 1\r\n", // slave antenna
+  // "OBSVHA COM1 1\r\n", // slave antenna
   "BESTNAVB 1\r\n",
   "CONFIG HEADING FIXLENGTH\r\n"
-  "config heading length 50 30\r\n",
+  "config heading length 100 40\r\n",
   "UNIHEADINGA 1\r\n",
 };
 
@@ -238,10 +248,31 @@ typedef struct {
 } gps_init_context_t;
 
 #if defined(BOARD_TYPE_BASE_UNICORE) || defined(BOARD_TYPE_ROVER_UNICORE)
+
+static void fix_init_complete(bool success, void *user_data) {
+  gps_id_t id = (gps_id_t)(uintptr_t)user_data;
+  LOG_INFO("GPS[%d] Fix mode init %s", id, success ? "succeeded" : "failed");
+}
+
 static void overall_init_complete(bool success, void *user_data) {
   gps_id_t id = (gps_id_t)(uintptr_t)user_data;
   LOG_INFO("GPS[%d] Overall init %s", id, success ? "succeeded" : "failed");
-}
+
+
+  if(success)
+  {
+    #if defined(BOARD_TYPE_BASE_UNICORE)
+    char buffer[64];
+    snprintf(buffer, sizeof(buffer),
+             "mode base %.10f %.10f %.4f\r\n",
+             40.07898324818, 116.23660197714, 60.4265);
+       gps_send_command_async(0, buffer,
+                           1000, fix_init_complete, 0);
+
+    #endif
+  }
+  
+   }
 #endif
 
 static void gps_init_command_callback(bool success, void *user_data) {
@@ -398,7 +429,7 @@ void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
     if (msg.nmea == GPS_NMEA_MSG_GGA) {
     	if(config->board == BOARD_TYPE_BASE_F9P || config->board == BOARD_TYPE_BASE_UM982)
     	{
-    	    if (gps->nmea_data.gga.fix >= GPS_FIX_RTK_FIX)
+    	    if (gps->nmea_data.gga.fix == GPS_FIX_RTK_FIX)
     	    {
     	        _add_gga_avg_data(inst, gps->nmea_data.gga.lat, gps->nmea_data.gga.lon,
     	                          gps->nmea_data.gga.alt);
@@ -411,14 +442,20 @@ void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
         {
           if(inst->id == GPS_ID_BASE)
           {
-             ntrip_send_gga_data(gps->nmea_data.gga_raw,
+            if(ntrip_gga_send_queue_initialized() && gps->nmea_data.gga.fix >= GPS_FIX_GPS) 
+            {
+              ntrip_send_gga_data(gps->nmea_data.gga_raw,
                                gps->nmea_data.gga_raw_pos);
+            }
           }
         }
         else
         {
-          ntrip_send_gga_data(gps->nmea_data.gga_raw,
-                            gps->nmea_data.gga_raw_pos);
+          if(ntrip_gga_send_queue_initialized() && gps->nmea_data.gga.fix >= GPS_FIX_GPS)
+          {
+            ntrip_send_gga_data(gps->nmea_data.gga_raw,
+                              gps->nmea_data.gga_raw_pos);
+          }
         }
       } 
     }
@@ -428,7 +465,7 @@ void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
     if (msg.ubx.id == GPS_UBX_NAV_ID_HPPOSLLH) {
       if(config->board == BOARD_TYPE_BASE_F9P)
       {
-        if (gps->nmea_data.gga.fix >= GPS_FIX_RTK_FIX) {
+        if (gps->nmea_data.gga.fix == GPS_FIX_RTK_FIX) {
           _add_hp_avg_data(inst);
         }
       }
@@ -456,6 +493,14 @@ void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
 
     break;
 
+case GPS_PROTOCOL_UNICORE_BIN:
+    switch (msg.unicore_bin.msg) {
+      case GPS_UNICORE_BIN_MSG_BESTNAV: {
+        hpd_unicore_bestnavb_t *bestnav = &gps->unicore_bin_data.bestnav;
+
+      }
+    }
+    break;
   case GPS_PROTOCOL_RTCM:
     if(config->lora_mode == LORA_MODE_BASE)
     {
@@ -556,6 +601,15 @@ void callback_function(bool success, void *user_data) {
     }
 }
 
+void base_station_cb(bool success, size_t failed_step, void *user_data)
+{
+    if (success) {
+        LOG_INFO("UBX base설정 완료");
+    } else {
+        LOG_ERR("UBX base 설정 실패 at step %d", failed_step);
+    }
+}
+
 
 static void gps_process_task(void *pvParameter) {
   gps_id_t id = (gps_id_t)(uintptr_t)pvParameter;
@@ -577,7 +631,7 @@ static void gps_process_task(void *pvParameter) {
     led_set_state(2, true);
   }
 
-  vTaskDelay(pdMS_TO_TICKS(1000));
+  vTaskDelay(pdMS_TO_TICKS(500));
 
   // gps_factory_reset_async(id, callback_function, NULL);
 
@@ -606,6 +660,20 @@ static void gps_process_task(void *pvParameter) {
             ubx_init_state_t state = ubx_init_async_get_state(&inst->gps);
             if (state == UBX_INIT_STATE_DONE) {
                 printf("✓ UBX initialization completed!\n");
+                const board_config_t *config = board_get_config();
+                if(config->board == BOARD_TYPE_BASE_F9P)
+                {
+                  user_params_t* params = flash_params_get_current();
+                  if(params->use_manual_position)
+                  {
+                    ubx_set_fixed_position_async(&inst->gps, params->lat, params->lon,
+                                                params->alt, base_station_cb, NULL);
+                  }
+                  else
+                  {
+                    ubx_set_survey_in_mode_async(&inst->gps, 120, 50000, base_station_cb, NULL); // 120초 5m
+                  }
+                }
                 init_done = true;
             } else if (state == UBX_INIT_STATE_ERROR) {
                 printf("✗ UBX initialization failed!\n");
@@ -951,5 +1019,4 @@ bool gps_factory_reset_async(gps_id_t id, gps_init_callback_t callback, void *us
  
 
   return true;
-
 }

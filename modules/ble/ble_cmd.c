@@ -21,72 +21,79 @@ static const char *ble_resp_str_not_rdy = "+E03\n";
 static const char *ble_resp_str_err = "+ERROR\n";
 
 #define BLE_AT_RESP_SEND(data) ble_send(data, strlen(data), false)
-                                 
+
 #define BLE_AT_RESP_SEND_OK() BLE_AT_RESP_SEND(ble_resp_str_ok)
 #define BLE_AT_RESP_SEND_INVALID() BLE_AT_RESP_SEND(ble_resp_str_invalid)
 #define BLE_AT_RESP_SEND_PARAM_ERR() BLE_AT_RESP_SEND(ble_resp_str_param_err)
 #define BLE_AT_RESP_SEND_NOT_RDY() BLE_AT_RESP_SEND(ble_resp_str_not_rdy)
 #define BLE_AT_RESP_SEND_ERR() BLE_AT_RESP_SEND(ble_resp_str_err)
 
-// 실제 구현된 핸들러만 선언
+static void sd_handler(ble_instance_t *inst, const char *param);
+static void sc_handler(ble_instance_t *inst, const char *param);
+static void sm_handler(ble_instance_t *inst, const char *param);
+static void si_handler(ble_instance_t *inst, const char *param);
+static void sp_handler(ble_instance_t *inst, const char *param);
+static void sg_handler(ble_instance_t *inst, const char *param);
 static void gd_handler(ble_instance_t *inst, const char *param);
 static void gi_handler(ble_instance_t *inst, const char *param);
 static void gp_handler(ble_instance_t *inst, const char *param);
 static void gg_handler(ble_instance_t *inst, const char *param);
 static void rs_handler(ble_instance_t *inst, const char *param);
 
-
-// BLE 모듈 응답 핸들러 (확장 필요 시 구현)
-void bot_ok_handler(ble_instance_t *inst, const char *param) {
-  // +OK 응답 처리 (필요 시 구현)
+void bot_ok_handler(ble_instance_t *inst, const char *param)
+{
+    LOG_DEBUG("BLE AT OK received");
 }
 
-void bot_err_handler(ble_instance_t *inst, const char *param) {
-  // +ERROR 응답 처리 (필요 시 구현)
-  LOG_WARN("BLE module error: %s", param);
+void bot_err_handler(ble_instance_t *inst, const char *param)
+{
+    LOG_DEBUG("BLE AT ERROR received");
 }
 
-void bot_rdy_handler(ble_instance_t *inst, const char *param) {
-  // +READY 응답 처리 (필요 시 구현)
-  LOG_INFO("BLE module ready");
+void bot_rdy_handler(ble_instance_t *inst, const char *param)
+{
+    LOG_DEBUG("BLE AT READY received");
 }
 
-void bot_advertising_handler(ble_instance_t *inst, const char *param) {
-  // +ADVERTISING 응답 처리 (필요 시 구현)
-  LOG_INFO("BLE advertising started");
+void bot_advertising_handler(ble_instance_t *inst, const char *param)
+{
+    LOG_DEBUG("BLE AT ADVERTISING");
 }
 
-void bot_connected_handler(ble_instance_t *inst, const char *param) {
-  // +CONNECTED 응답 처리 (필요 시 구현)
-  LOG_INFO("BLE connected via AT response");
+void bot_connected_handler(ble_instance_t *inst, const char *param)
+{
+    LOG_DEBUG("BLE AT CONNECTED");
 }
 
-void bot_disconnected_handler(ble_instance_t *inst, const char *param) {
-  // +DISCONNECTED 응답 처리 (필요 시 구현)
-  LOG_INFO("BLE disconnected via AT response");
+void bot_disconnected_handler(ble_instance_t *inst, const char *param)
+{
+    LOG_DEBUG("BLE AT DISCONNECTED");
 }
 
 // AT+UART=xxxx
 // AT+MANUF=xxxxxxxx
 static const ble_at_cmd_entry_t bot_cmd_table[] = {
-		{"+OK", bot_ok_handler},
-		{"+ERROR", bot_err_handler},
-		{"+READY", bot_rdy_handler},
-		{"+ADVERTISING", bot_advertising_handler},
-		{"+CONNECTED", bot_connected_handler},
-		{"+DISCONNECTED", bot_disconnected_handler},
+    {"+OK", bot_ok_handler},
+    {"+ERROR", bot_err_handler},
+    {"+READY", bot_rdy_handler},
+    {"+ADVERTISING", bot_advertising_handler},
+    {"+CONNECTED", bot_connected_handler},
+    {"+DISCONNECTED", bot_disconnected_handler},
 };
 
-
-// 애플리케이션 명령어 테이블 (실제 구현된 것만)
 static const ble_at_cmd_entry_t at_cmd_table[] = {
-    {"GD", gd_handler},  // Get Device name
-    {"GI", gi_handler},  // Get ID
-    {"GP", gp_handler},  // Get Password
-    {"GG", gg_handler},  // Get GPS/Location
-    {"RS", rs_handler},  // Reset system
-    {NULL, NULL}
-};
+    {"SD", sd_handler},
+    {"SC", sc_handler},
+    {"SM", sm_handler},
+    {"SI", si_handler},
+    {"SP", sp_handler},
+    {"SG", sg_handler},
+    {"GD", gd_handler},
+    {"GI", gi_handler},
+    {"GP", gp_handler},
+    {"GG", gg_handler},
+    {"RS", rs_handler},
+    {NULL, NULL}};
 
 void ble_app_cmd_handler(ble_instance_t *inst)
 {
@@ -153,7 +160,25 @@ void ble_at_cmd_handler(ble_instance_t *inst)
     }
 }
 
-// 구현된 앱 커맨드 핸들러들
+
+static void sd_handler(ble_instance_t *inst, const char *param)
+{
+}
+static void sc_handler(ble_instance_t *inst, const char *param)
+{
+}
+static void sm_handler(ble_instance_t *inst, const char *param)
+{
+}
+static void si_handler(ble_instance_t *inst, const char *param)
+{
+}
+static void sp_handler(ble_instance_t *inst, const char *param)
+{
+}
+static void sg_handler(ble_instance_t *inst, const char *param)
+{
+}
 static void gd_handler(ble_instance_t *inst, const char *param)
 {
     user_params_t *params = flash_params_get_current();
@@ -188,7 +213,7 @@ static void gg_handler(ble_instance_t *inst, const char *param)
 }
 static void rs_handler(ble_instance_t *inst, const char *param)
 {
- ble_get_handle()->ops->send("Device Reset\n", strlen("Device Reset\n"));
- vTaskDelay(pdMS_TO_TICKS(100));
-NVIC_SystemReset();
+    ble_get_handle()->ops->send("Device Reset\n", strlen("Device Reset\n"));
+    vTaskDelay(pdMS_TO_TICKS(100));
+    NVIC_SystemReset();
 }

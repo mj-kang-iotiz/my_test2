@@ -18,6 +18,11 @@
 
 #include "log.h"
 
+static int ble_uart5_change_baudrate(uint32_t baudrate);
+static int ble_send_at_command_sync(const char *at_cmd, const char *expected_response, uint32_t timeout_ms);
+static int ble_uart5_recv_line_poll(char *buf, size_t buf_size, uint32_t timeout_ms);
+
+
 #define BLE_PORT_UART USART5
 #define BLE_PORT_UART_DMA DMA1
 #define BLE_PORT_UART_DMA_STREAM LL_DMA_STREAM_0
@@ -142,45 +147,65 @@ int ble_uart5_comm_start(void) {
 int ble_uart5_hw_init(void) {
   int ret;
 
+  uint32_t current_baudrate = 9600;  // 최종 확정된 속도
+
+ 
+
   // 1. DMA 초기화 (아직 시작하지 않음)
+
   ble_uart5_dma_init();
 
+ 
+
   // 2. UART 9600bps로 초기화
+
   ble_uart5_init();
 
   LOG_INFO("BLE UART initialized at 9600 bps");
 
-  // 3. AT 모드로 전환
-  ble_set_at_cmd_mode();
-  HAL_Delay(100);  // 모드 전환 대기
+ 
 
-  // 4. 동기적으로 UART 속도를 115200으로 변경
-  LOG_INFO("Changing BLE module baudrate to 115200...");
-  ret = ble_send_at_command_sync("AT+UART=115200\r\n", "+OK", 3000);
+  // 3. AT 모드로 전환 (토글로 에지 생성)
+  ble_set_bypass_mode();  // Low 먼저
+  HAL_Delay(200);
+  ble_set_at_cmd_mode();  // High
+  HAL_Delay(2000);  // 모드 전환 대기 증가
 
-  if (ret != 0) {
-    LOG_ERR("Failed to change BLE module baudrate");
-    // 실패해도 계속 진행 (9600으로 동작)
-    ble_set_bypass_mode();
-    return 0;
+  LL_USART_Enable(UART5);
+
+  HAL_Delay(1000);  // 모드 전환 대기
+
+ 
+
+  // 4. 자동 속도 감지: 9600bps 통신 확인
+
+  LOG_INFO("Auto-detecting BLE module baudrate...");
+
+  LOG_INFO("Testing 9600 bps...");
+
+  ret = ble_send_at_command_sync("AT\r\n", "+OK", 2000);  // \r\n 추가, 타임아웃 증가
+
+ 
+  if (ret == 0) {
+
+    LOG_INFO("Changing BLE module to 115200 bps...");
+
+    ret = ble_send_at_command_sync("AT+UART=115200\r\n", "+OK", 3000);
+    current_baudrate = 115200;
+    ble_uart5_change_baudrate(115200);
+    vTaskDelay(pdMS_TO_TICKS(2500));
+  }
+  else
+  {
+    current_baudrate = 115200;
+    ble_uart5_change_baudrate(115200);
   }
 
-  // 5. 짧은 대기 후 STM32 UART 속도 변경
-  HAL_Delay(50);
-  ble_uart5_change_baudrate(115200);
+  // 최종 속도 로그
 
-  // 6. 통신 확인 (AT 커맨드 테스트)
-  LOG_INFO("Testing communication at 115200 bps...");
-  ret = ble_send_at_command_sync("AT\r\n", "+OK", 1000);
-
-  if (ret != 0) {
-    LOG_WARN("Communication test failed, reverting to 9600 bps");
-    // 통신 실패 시 9600으로 복귀
-    ble_uart5_change_baudrate(9600);
-  } else {
-    LOG_INFO("BLE communication established at 115200 bps");
-  }
-
+  LOG_INFO("BLE initialization complete at %lu bps", current_baudrate);
+ 
+  LL_USART_Disable(UART5);
   // 7. Bypass 모드로 전환 (정상 동작 준비)
   ble_set_bypass_mode();
 
@@ -238,7 +263,7 @@ static int ble_uart5_recv_line_poll(char *buf, size_t buf_size, uint32_t timeout
     buf[pos++] = (char)byte;
 
     // \n 수신 시 종료
-    if (byte == '\n') {
+    if (byte == '\r') {
       buf[pos] = '\0';
       return pos;
     }

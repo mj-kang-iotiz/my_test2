@@ -100,6 +100,7 @@ void initThread(void *pvParameter) {
 	const board_config_t *config = board_get_config();
 
 	flash_params_init();
+  flash_params_set_manual_position(true, "37.413421", "127.125791", "60");
 //	flash_params_set_ntrip_url("www.gnssdata.or.kr");
 //	flash_params_set_ntrip_port("2101");
 //	flash_params_set_ntrip_mountpoint("SONP-RTCM32");
@@ -111,8 +112,8 @@ void initThread(void *pvParameter) {
   led_set_color(3, LED_COLOR_RED);
   led_set_state(3, true);
   gps_init_all();
-  gsm_task_create(NULL);
-  lora_instance_init();
+//  gsm_task_create(NULL);
+//  lora_instance_init();
 
   if(config->use_rs485)
   {
@@ -143,7 +144,7 @@ int main(void) {
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick.
    */
-  HAL_Init();
+    HAL_Init();
 
   /* USER CODE BEGIN Init */
 

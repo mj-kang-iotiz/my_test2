@@ -19,7 +19,6 @@ typedef enum
   BLE_CMD_PARSE_STATE_DATA,
   BLE_CMD_PARSE_STATE_APP,
 }ble_cmd_parse_state_t;
-
 typedef enum {
   BLE_AT_STATUS_IDLE,
   BLE_AT_STATUS_PENDING,

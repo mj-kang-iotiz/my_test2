@@ -25,6 +25,7 @@
         "rs485_cmd.h": "c",
         "queue.h": "c",
         "ble.h": "c",
-        "task.h": "c"
+        "task.h": "c",
+        "f9p_baudrate_config.h": "c"
     }
 }
