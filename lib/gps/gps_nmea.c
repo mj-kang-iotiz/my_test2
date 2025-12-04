@@ -45,9 +45,7 @@ static void parse_nmea_gga(gps_t *gps) {
     break;
 
   case 2: // lat
-    if (gps->nmea.term_pos > 0) {
-      gps->nmea_data.gga.lat = parse_lat_lon(gps);
-    }
+    gps->nmea_data.gga.lat = parse_lat_lon(gps);
     break;
 
   case 3: // NS
@@ -59,9 +57,7 @@ static void parse_nmea_gga(gps_t *gps) {
     break;
 
   case 4: // lon
-    if (gps->nmea.term_pos > 0) {
-      gps->nmea_data.gga.lon = parse_lat_lon(gps);
-    }
+    gps->nmea_data.gga.lon = parse_lat_lon(gps);
     break;
 
   case 5: // EW
@@ -140,6 +136,9 @@ uint8_t gps_parse_nmea_term(gps_t *gps) {
       if (!strncmp(msg, "GGA", 3)) {
         if (is_talker_gn) {
           gps->nmea.msg_type = GPS_NMEA_MSG_GGA;
+
+          // GGA 데이터 초기화 (이전 데이터가 남지 않도록)
+          memset(&gps->nmea_data.gga, 0, sizeof(gps->nmea_data.gga));
 
 #if defined(USE_STORE_RAW_GGA)
           gps->nmea_data.gga_raw_pos = 0;
