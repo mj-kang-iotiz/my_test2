@@ -331,8 +331,19 @@ static bool rtcm_validate_packet(const uint8_t *buffer, size_t len)
     return false;
   }
 
-  LOG_INFO("RTCM packet valid: len=%d, payload=%d, CRC=0x%06X",
-           len, payload_len, received_crc);
+  // RTCM 메시지 타입 파싱 (payload의 처음 12 bits)
+  uint16_t msg_type = 0;
+  if (payload_len >= 2)
+  {
+    // Message type: bits 24-35 (1.5 bytes after header)
+    // buffer[3] = first payload byte (bits 24-31)
+    // buffer[4] = second payload byte (bits 32-39)
+    // Message type is in bits 24-35 (12 bits)
+    msg_type = (((uint16_t)buffer[3]) << 4) | (buffer[4] >> 4);
+  }
+
+  LOG_INFO("RTCM packet valid: type=%d, len=%d, payload=%d, CRC=0x%06X",
+           msg_type, len, payload_len, received_crc);
   return true;
 }
 
