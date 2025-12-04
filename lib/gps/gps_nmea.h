@@ -5,7 +5,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define GPS_NMEA_TERM_SIZE 13
+#define GPS_NMEA_TERM_SIZE 16  // UM982의 긴 좌표 형식 지원
 
 /**
  * @brief GGA quality fix 상태
