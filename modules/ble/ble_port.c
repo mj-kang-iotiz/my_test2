@@ -113,6 +113,7 @@ static void ble_uart5_init(void)
   USART_InitStruct.OverSampling = LL_USART_OVERSAMPLING_16;
   LL_USART_Init(UART5, &USART_InitStruct);
   LL_USART_ConfigAsyncMode(UART5);
+  LL_USART_Enable(UART5);
   /* USER CODE BEGIN UART5_Init 2 */
 
   /* USER CODE END UART5_Init 2 */
@@ -341,11 +342,13 @@ static int ble_send_at_command_sync(const char *at_cmd, const char *expected_res
 int ble_set_at_cmd_mode(void)
 {
 	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_10, GPIO_PIN_SET);
+	return 0;
 }
 
 int ble_set_bypass_mode(void)
 {
 	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_10, GPIO_PIN_RESET);
+	return 0;
 }
 
 static const ble_hal_ops_t ble_uart5_ops = {
