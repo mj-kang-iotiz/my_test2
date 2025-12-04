@@ -25,7 +25,7 @@ bool ubx_factory_reset(gps_t* gps, ubx_init_complete_callback_t callback, void *
 bool ubx_set_survey_in_mode(gps_t* gps, uint32_t min_duration, uint32_t accuracy_limit);
 
 /**
- * @brief Fixed 모드 설정 (수동 좌표 입력)
+ * @brief Fixed 모드 설정 (수동 좌표 입력) - 동기 버전
  *
  * @param gps GPS 구조체
  * @param lat_str 위도 문자열 (degrees, 예: "37.12345")
@@ -35,8 +35,27 @@ bool ubx_set_survey_in_mode(gps_t* gps, uint32_t min_duration, uint32_t accuracy
  *
  * @note 이 함수는 ubx_base_init() 완료 후 호출해야 합니다.
  * @note user_params_t의 lat, lon, alt 값을 직접 전달할 수 있습니다.
+ * @warning 동기 방식으로 최대 6초 blocking될 수 있습니다.
  */
 bool ubx_set_fixed_position(gps_t* gps, const char* lat_str, const char* lon_str, const char* alt_str);
+
+/**
+ * @brief Fixed 모드 설정 (수동 좌표 입력) - 비동기 버전
+ *
+ * @param gps GPS 구조체
+ * @param lat_str 위도 문자열 (degrees, 예: "37.12345")
+ * @param lon_str 경도 문자열 (degrees, 예: "127.12345")
+ * @param alt_str 고도 문자열 (meters, 예: "100.5")
+ * @param callback 완료 시 호출될 콜백 (성공 여부 전달)
+ * @param user_data 콜백에 전달할 사용자 데이터
+ * @return true 시작 성공, false 실패
+ *
+ * @note 이 함수는 즉시 반환되며, 완료 시 콜백이 호출됩니다.
+ * @note 콜백은 GPS task context에서 호출됩니다.
+ */
+bool ubx_set_fixed_position_async(gps_t* gps, const char* lat_str, const char* lon_str,
+                                   const char* alt_str, ubx_init_complete_callback_t callback,
+                                   void *user_data);
 
 /**
  * @brief Time Mode 비활성화

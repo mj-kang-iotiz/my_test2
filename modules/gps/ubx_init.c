@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <string.h>
 #include "gps_ubx.h"
 #include "ubx_init.h"
 
@@ -577,6 +578,155 @@ bool ubx_disable_time_mode(gps_t* gps)
     }
 
     return result;
+}
+
+/* ========== 비동기 버전 ========== */
+
+/**
+ * @brief Fixed 모드 비동기 설정을 위한 context
+ */
+typedef struct {
+    gps_t* gps;
+    ubx_cfg_item_t position_configs[3];  // LAT, LON, HEIGHT
+    ubx_cfg_item_t mode_config;          // MODE
+    ubx_init_complete_callback_t user_callback;
+    void* user_data;
+    char lat_str[16];
+    char lon_str[16];
+    char alt_str[16];
+} tmode_async_context_t;
+
+static tmode_async_context_t g_tmode_ctx;
+
+/**
+ * @brief STEP 2 완료 콜백 (Mode 활성화 완료)
+ */
+static void on_mode_enable_complete(bool ack, void *user_data)
+{
+    tmode_async_context_t *ctx = (tmode_async_context_t *)user_data;
+
+    if (ack) {
+        LOG_DEBUG("Fixed mode enabled\n");
+        if (ctx->user_callback) {
+            ctx->user_callback(true, 0, ctx->user_data);
+        }
+    } else {
+        LOG_ERR("Failed to enable fixed mode\n");
+        if (ctx->user_callback) {
+            ctx->user_callback(false, 1, ctx->user_data);
+        }
+    }
+}
+
+/**
+ * @brief STEP 1 완료 콜백 (위치 설정 완료)
+ */
+static void on_position_set_complete(bool ack, void *user_data)
+{
+    tmode_async_context_t *ctx = (tmode_async_context_t *)user_data;
+
+    if (!ack) {
+        LOG_ERR("Failed to set position coordinates\n");
+        if (ctx->user_callback) {
+            ctx->user_callback(false, 0, ctx->user_data);
+        }
+        return;
+    }
+
+    LOG_DEBUG("Position set (lat: %s, lon: %s, alt: %s m)\n",
+              ctx->lat_str, ctx->lon_str, ctx->alt_str);
+
+    // STEP 2: Fixed 모드 활성화
+    bool result = ubx_send_valset_cb(ctx->gps, UBX_CFG_LAYER_RAM,
+                                     &ctx->mode_config, 1,
+                                     on_mode_enable_complete, ctx);
+
+    if (!result) {
+        LOG_ERR("Failed to send mode enable command\n");
+        if (ctx->user_callback) {
+            ctx->user_callback(false, 1, ctx->user_data);
+        }
+    }
+}
+
+/**
+ * @brief Fixed 모드 설정 (수동 좌표 입력) - 비동기 버전
+ *
+ * @param gps GPS 구조체
+ * @param lat_str 위도 문자열 (degrees, 예: "37.12345")
+ * @param lon_str 경도 문자열 (degrees, 예: "127.12345")
+ * @param alt_str 고도 문자열 (meters, 예: "100.5")
+ * @param callback 완료 시 호출될 콜백
+ * @param user_data 콜백에 전달할 사용자 데이터
+ * @return true 시작 성공, false 실패
+ */
+bool ubx_set_fixed_position_async(gps_t* gps, const char* lat_str, const char* lon_str,
+                                   const char* alt_str, ubx_init_complete_callback_t callback,
+                                   void *user_data)
+{
+    if (!gps || !lat_str || !lon_str || !alt_str) {
+        return false;
+    }
+
+    // Context 초기화
+    g_tmode_ctx.gps = gps;
+    g_tmode_ctx.user_callback = callback;
+    g_tmode_ctx.user_data = user_data;
+
+    // 문자열 저장 (로그용)
+    snprintf(g_tmode_ctx.lat_str, sizeof(g_tmode_ctx.lat_str), "%s", lat_str);
+    snprintf(g_tmode_ctx.lon_str, sizeof(g_tmode_ctx.lon_str), "%s", lon_str);
+    snprintf(g_tmode_ctx.alt_str, sizeof(g_tmode_ctx.alt_str), "%s", alt_str);
+
+    // 문자열을 double로 변환
+    double lat_deg = strtod(lat_str, NULL);
+    double lon_deg = strtod(lon_str, NULL);
+    double alt_m = strtod(alt_str, NULL);
+
+    // u-blox 포맷으로 변환
+    int32_t lat_e7 = (int32_t)(lat_deg * 1e7);
+    int32_t lon_e7 = (int32_t)(lon_deg * 1e7);
+    int32_t height_cm = (int32_t)(alt_m * 100);
+
+    // STEP 1: 위치 정보 설정
+    g_tmode_ctx.position_configs[0].key_id = CFG_TMODE_LLH_LAT;
+    g_tmode_ctx.position_configs[0].value[0] = (lat_e7 & 0xFF);
+    g_tmode_ctx.position_configs[0].value[1] = (lat_e7 >> 8) & 0xFF;
+    g_tmode_ctx.position_configs[0].value[2] = (lat_e7 >> 16) & 0xFF;
+    g_tmode_ctx.position_configs[0].value[3] = (lat_e7 >> 24) & 0xFF;
+    g_tmode_ctx.position_configs[0].value_len = 4;
+
+    g_tmode_ctx.position_configs[1].key_id = CFG_TMODE_LLH_LON;
+    g_tmode_ctx.position_configs[1].value[0] = (lon_e7 & 0xFF);
+    g_tmode_ctx.position_configs[1].value[1] = (lon_e7 >> 8) & 0xFF;
+    g_tmode_ctx.position_configs[1].value[2] = (lon_e7 >> 16) & 0xFF;
+    g_tmode_ctx.position_configs[1].value[3] = (lon_e7 >> 24) & 0xFF;
+    g_tmode_ctx.position_configs[1].value_len = 4;
+
+    g_tmode_ctx.position_configs[2].key_id = CFG_TMODE_LLH_HEIGHT;
+    g_tmode_ctx.position_configs[2].value[0] = (height_cm & 0xFF);
+    g_tmode_ctx.position_configs[2].value[1] = (height_cm >> 8) & 0xFF;
+    g_tmode_ctx.position_configs[2].value[2] = (height_cm >> 16) & 0xFF;
+    g_tmode_ctx.position_configs[2].value[3] = (height_cm >> 24) & 0xFF;
+    g_tmode_ctx.position_configs[2].value_len = 4;
+
+    // STEP 2: Mode 설정 준비
+    g_tmode_ctx.mode_config.key_id = CFG_TMODE_MODE;
+    g_tmode_ctx.mode_config.value[0] = 2;  // Fixed mode
+    g_tmode_ctx.mode_config.value_len = 1;
+
+    // STEP 1 실행: 위치 정보 전송
+    bool result = ubx_send_valset_cb(gps, UBX_CFG_LAYER_RAM,
+                                     g_tmode_ctx.position_configs, 3,
+                                     on_position_set_complete, &g_tmode_ctx);
+
+    if (!result) {
+        LOG_ERR("Failed to send position config command\n");
+        return false;
+    }
+
+    LOG_DEBUG("Fixed position async started\n");
+    return true;
 }
 
 
