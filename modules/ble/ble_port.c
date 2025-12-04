@@ -8,6 +8,8 @@
 #include "stm32f4xx_ll_dma.h"
 #include "stm32f4xx_ll_gpio.h"
 #include "stm32f4xx_ll_usart.h"
+#include "stm32f4xx_ll_exti.h"
+#include "stm32f4xx_ll_system.h"
 #include "FreeRTOS.h"
 #include "queue.h"
 #include <string.h>
@@ -42,7 +44,7 @@ static void ble_uart5_dma_init(void)
 
 static void ble_uart5_init(void)
 {
- 
+
   /* USER CODE BEGIN UART5_Init 0 */
 
   /* USER CODE END UART5_Init 0 */
@@ -56,6 +58,7 @@ static void ble_uart5_init(void)
 
   LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOC);
   LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOD);
+
   /**UART5 GPIO Configuration
   PC12   ------> UART5_TX
   PD2   ------> UART5_RX
@@ -75,6 +78,40 @@ static void ble_uart5_init(void)
   GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
   GPIO_InitStruct.Alternate = LL_GPIO_AF_8;
   LL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
+  /**BLE Control GPIO Configuration
+  PC10   ------> BLE MODE (HIGH: AT Command Mode, LOW: Bypass Mode)
+  PC11   ------> BLE CONNECTION STATUS (HIGH: Connected, LOW: Disconnected)
+  */
+  // PC10: BLE Mode Control (Output, initially LOW for Bypass)
+  GPIO_InitStruct.Pin = LL_GPIO_PIN_10;
+  GPIO_InitStruct.Mode = LL_GPIO_MODE_OUTPUT;
+  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+  LL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+  LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_10);  // Start in Bypass mode
+
+  // PC11: BLE Connection Status (Input with interrupt)
+  GPIO_InitStruct.Pin = LL_GPIO_PIN_11;
+  GPIO_InitStruct.Mode = LL_GPIO_MODE_INPUT;
+  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.Pull = LL_GPIO_PULL_DOWN;
+  LL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  // PC11 EXTI 설정 (연결 상태 감지용)
+  LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_SYSCFG);
+  LL_SYSCFG_SetEXTISource(LL_SYSCFG_EXTI_PORTC, LL_SYSCFG_EXTI_LINE11);
+
+  LL_EXTI_InitTypeDef EXTI_InitStruct = {0};
+  EXTI_InitStruct.Line_0_31 = LL_EXTI_LINE_11;
+  EXTI_InitStruct.LineCommand = ENABLE;
+  EXTI_InitStruct.Mode = LL_EXTI_MODE_IT;
+  EXTI_InitStruct.Trigger = LL_EXTI_TRIGGER_RISING_FALLING;
+  LL_EXTI_Init(&EXTI_InitStruct);
+
+  NVIC_SetPriority(EXTI15_10_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 5, 0));
+  NVIC_EnableIRQ(EXTI15_10_IRQn);
 
   /* UART5 DMA Init */
 
@@ -306,11 +343,18 @@ static int ble_uart5_change_baudrate(uint32_t baudrate) {
 // 동기 AT 커맨드 전송 및 응답 대기 (초기화용, 폴링 방식)
 static int ble_send_at_command_sync(const char *at_cmd, const char *expected_response, uint32_t timeout_ms) {
   char response[128];
+  int received_count = 0;
 
   LOG_INFO("Sending AT command (sync): %s", at_cmd);
 
+  // RX 버퍼 클리어 (이전 데이터 제거)
+  while (LL_USART_IsActiveFlag_RXNE(UART5)) {
+    (void)LL_USART_ReceiveData8(UART5);
+  }
+
   // AT 커맨드 전송
   ble_uart5_send(at_cmd, strlen(at_cmd));
+  LOG_INFO("AT command sent, waiting for response...");
 
   // 응답 대기 (폴링 방식)
   uint32_t start = HAL_GetTick();
@@ -319,7 +363,8 @@ static int ble_send_at_command_sync(const char *at_cmd, const char *expected_res
     int len = ble_uart5_recv_line_poll(response, sizeof(response), 100);
 
     if (len > 0) {
-      LOG_INFO("Received response: %s", response);
+      received_count++;
+      LOG_INFO("Received response #%d (len=%d): %s", received_count, len, response);
 
       // 기대 응답과 비교
       if (strstr(response, expected_response) != NULL) {
@@ -335,7 +380,7 @@ static int ble_send_at_command_sync(const char *at_cmd, const char *expected_res
     }
   }
 
-  LOG_ERR("AT command timeout");
+  LOG_ERR("AT command timeout (received %d responses)", received_count);
   return -1;  // 타임아웃
 }
 
