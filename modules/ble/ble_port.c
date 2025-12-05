@@ -171,51 +171,44 @@ int ble_uart5_hw_init(void) {
   }
   LOG_INFO("UART RX buffer cleared");
 
-  // 4. 자동 baudrate 감지 및 설정
-  LOG_INFO("Auto-detecting BLE module baudrate...");
-  LOG_INFO("Testing 9600 bps...");
+  // 4. BLE 모듈을 115200bps로 직접 설정
+  //    대부분의 BLE 모듈은 공장 초기값이 115200bps
+  LOG_INFO("Setting BLE module to 115200 bps directly...");
+  ble_uart5_change_baudrate(115200);
+  current_baudrate = 115200;
+  vTaskDelay(pdMS_TO_TICKS(100));  // UART 안정화 대기
 
+  // 115200bps에서 통신 테스트
+  LOG_INFO("Testing communication at 115200 bps...");
   ret = ble_send_at_command_sync("AT\r\n", "+OK", 2000);
 
-  if (ret == 0) {
-    // 9600bps 통신 성공 - 115200bps로 변경
-    LOG_INFO("9600 bps communication OK, changing to 115200 bps...");
-
-    // UART 변경 커맨드 전송 (OK + READY 대기, MCU UART 자동 변경 포함)
-    ret = ble_send_uart_change_command(115200, 5000);
-
-    if (ret == 0) {
-      // BLE 모듈 및 MCU UART 변경 완료
-      LOG_INFO("Baudrate changed to 115200 successfully");
-      current_baudrate = 115200;
-      vTaskDelay(pdMS_TO_TICKS(100));  // vTaskDelay로 변경
-    } else {
-      LOG_ERR("Failed to change BLE module baudrate, staying at 9600");
-      current_baudrate = 9600;  // 실패 시 9600 유지
-    }
-  }
-  else
-  {
-    // 9600bps 통신 실패 - 이미 115200bps라고 가정
-    LOG_INFO("9600 bps no response, assuming 115200 bps...");
-    ble_uart5_change_baudrate(115200);
-    current_baudrate = 115200;
-    vTaskDelay(pdMS_TO_TICKS(100));  // vTaskDelay로 변경
+  if (ret != 0) {
+    LOG_ERR("BLE module not responding at 115200 bps!");
+    LOG_ERR("Please check: 1) BLE module power, 2) UART connections, 3) GPIO pins");
+    // 초기화 실패, 하지만 계속 진행 (디버깅 위해)
+  } else {
+    LOG_INFO("BLE module responding at 115200 bps");
   }
 
   // 최종 속도 로그
   LOG_INFO("BLE initialization complete at %lu bps", current_baudrate);
 
   // 5. AT+ADVON 전송 (advertising 시작)
-  LOG_INFO("Starting BLE advertising...");
+  //    주의: 일부 BLE 모듈은 부팅 시 자동으로 advertising 시작
+  //    이 경우 +ERROR 응답 가능 (이미 advertising 중)
+  LOG_INFO("Attempting to start BLE advertising with AT+ADVON...");
   ret = ble_send_at_command_sync("AT+ADVON\r\n", "+OK", 2000);
+
   if (ret == 0) {
-    LOG_INFO("BLE advertising started successfully");
+    LOG_INFO("ADVON: Advertising started successfully");
   } else {
-    LOG_WARN("BLE advertising start failed or timeout");
+    LOG_WARN("ADVON: Command failed (+ERROR or timeout)");
+    LOG_WARN("ADVON: This may be normal if advertising auto-starts on boot");
+    LOG_WARN("ADVON: Check if BLE device is visible on phone/scanner");
+    // 에러가 나도 계속 진행 (자동 advertising 가능)
   }
 
-  vTaskDelay(pdMS_TO_TICKS(100));  // vTaskDelay로 변경 (ADVON 처리 대기)
+  vTaskDelay(pdMS_TO_TICKS(100));
 
   LL_USART_Disable(UART5);
   // 6. Bypass 모드로 전환 (정상 동작 준비)
