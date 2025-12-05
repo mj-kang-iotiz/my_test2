@@ -1303,11 +1303,11 @@ bool lora_send_p2p_raw_async(const uint8_t *data, size_t len, uint32_t timeout_m
     LOG_INFO("First 4 bytes (binary): %02X %02X %02X %02X", data[0], data[1], data[2], data[3]);
   }
 
-  // ToA 대기 불필요: RAK 모듈이 at+send=lorap2p: 명령에서 OK를 실제 전송 완료 후 반환함
+  // ToA 대기 최소화: RAK 모듈이 at+send=lorap2p: 명령에서 OK를 실제 전송 완료 후 반환함
   // 실측: 90 bytes 전송 시 OK까지 약 200ms 소요 (SF7 ToA ~40ms보다 훨씬 김)
   // 이는 모듈이 자체적으로 전송 완료를 대기하고 있음을 의미
-  // 따라서 OK 수신 후 바로 다음 패킷 전송 가능
-  uint32_t toa_ms = 0;  // No additional ToA delay needed
+  // 5ms guard time: UART 처리 및 모듈 내부 버퍼 정리 시간
+  uint32_t toa_ms = 5;  // Minimal guard time for safety
 
   // Create AT command: at+send=lorap2p:<HEX_STRING>\r\n
   char cmd[600];
