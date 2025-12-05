@@ -655,24 +655,11 @@ static void lora_tx_task(void *pvParameter)
                      *(cmd_req.result) ? "OK" : "ERROR");
           }
 
-          // ToA 대기: AT 명령어 전송 시작 시점부터 ToA 경과 보장
+          // OK 응답 후 무조건 guard time 대기 (UART 처리 및 모듈 내부 버퍼 정리)
           if (cmd_req.toa_ms > 0)
           {
-            TickType_t elapsed_tick = xTaskGetTickCount() - start_tick;
-            uint32_t elapsed_ms = elapsed_tick * 1000 / configTICK_RATE_HZ;
-
-            if (elapsed_ms < cmd_req.toa_ms)
-            {
-              uint32_t remaining_ms = cmd_req.toa_ms - elapsed_ms;
-              LOG_INFO("Waiting remaining ToA %dms (elapsed=%dms, total=%dms)",
-                       remaining_ms, elapsed_ms, cmd_req.toa_ms);
-              vTaskDelay(pdMS_TO_TICKS(remaining_ms));
-            }
-            else
-            {
-              LOG_INFO("ToA already satisfied: elapsed=%dms >= ToA=%dms",
-                       elapsed_ms, cmd_req.toa_ms);
-            }
+            LOG_INFO("Guard time: waiting %dms after OK response", cmd_req.toa_ms);
+            vTaskDelay(pdMS_TO_TICKS(cmd_req.toa_ms));
           }
         }
         else
