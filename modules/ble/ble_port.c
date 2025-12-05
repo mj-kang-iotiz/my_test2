@@ -125,6 +125,10 @@ static void ble_uart5_init(void)
 }
 
 int ble_uart5_comm_start(void) {
+  // 1. UART 먼저 활성화 (인터럽트 설정 전에 필수!)
+  LL_USART_Enable(UART5);
+
+  // 2. DMA 설정
   LL_DMA_SetPeriphAddress(DMA1, LL_DMA_STREAM_0, (uint32_t)&UART5->DR);
   LL_DMA_SetMemoryAddress(DMA1, LL_DMA_STREAM_0,
                           (uint32_t)&ble_recv_buf[0]);
@@ -134,13 +138,14 @@ int ble_uart5_comm_start(void) {
   LL_DMA_EnableIT_FE(DMA1, LL_DMA_STREAM_0);
   LL_DMA_EnableIT_DME(DMA1, LL_DMA_STREAM_0);
 
+  // 3. UART 인터럽트 활성화 (UART가 이미 활성화된 상태에서!)
   LL_USART_EnableIT_IDLE(UART5);
   LL_USART_EnableIT_PE(UART5);
   LL_USART_EnableIT_ERROR(UART5);
   LL_USART_EnableDMAReq_RX(UART5);
 
+  // 4. DMA 스트림 시작
   LL_DMA_EnableStream(DMA1, LL_DMA_STREAM_0);
-  LL_USART_Enable(UART5);
 
   return 0;
 }
@@ -209,6 +214,15 @@ int ble_uart5_hw_init(void) {
   }
 
   vTaskDelay(pdMS_TO_TICKS(100));
+
+  // UART 종료 전 모든 플래그 클리어 (중요!)
+  LL_USART_ClearFlag_IDLE(UART5);
+  LL_USART_ClearFlag_PE(UART5);
+  LL_USART_ClearFlag_FE(UART5);
+  LL_USART_ClearFlag_ORE(UART5);
+  LL_USART_ClearFlag_NE(UART5);
+  LL_USART_ClearFlag_TC(UART5);
+  LL_USART_ClearFlag_RXNE(UART5);
 
   LL_USART_Disable(UART5);
   // 6. Bypass 모드로 전환 (정상 동작 준비)
