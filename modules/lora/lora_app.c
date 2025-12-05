@@ -833,8 +833,8 @@ static void lora_process_task(void *pvParameter)
                 {
                   LOG_INFO("Valid RTCM packet - sending to GPS via UART");
 
-                  // GPS UART로 직접 전송
-                  if (!gps_send_raw_data(GPS_ID_ROVER,
+                  // GPS UART로 직접 전송 (rover는 GPS_ID_BASE 사용)
+                  if (!gps_send_raw_data(GPS_ID_BASE,
                                          instance.rtcm_reassembly.buffer,
                                          instance.rtcm_reassembly.expected_len))
                   {
@@ -941,8 +941,8 @@ static void lora_process_task(void *pvParameter)
                 {
                   LOG_INFO("Valid RTCM packet - sending to GPS via UART (wrap)");
 
-                  // GPS UART로 직접 전송
-                  if (!gps_send_raw_data(GPS_ID_ROVER,
+                  // GPS UART로 직접 전송 (rover는 GPS_ID_BASE 사용)
+                  if (!gps_send_raw_data(GPS_ID_BASE,
                                          instance.rtcm_reassembly.buffer,
                                          instance.rtcm_reassembly.expected_len))
                   {
