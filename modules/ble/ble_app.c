@@ -152,9 +152,11 @@ static void ble_rx_task(void *pvParameter) {
         size_t len = pos - old_pos;
         total_received = len;
         LOG_DEBUG_RAW("BLE RX: ", &ble_recv[old_pos], len);
-        if (inst->current_mode == BLE_MODE_AT) {
-          ble_cmd_parse_process(inst, &ble_recv[old_pos], len);
-        } else if (inst->bypass_rx_callback != NULL) {
+        // 항상 파싱 (AT 응답 또는 앱 커맨드 처리)
+        ble_cmd_parse_process(inst, &ble_recv[old_pos], len);
+
+        // Bypass 모드에서는 콜백도 호출 (raw 데이터 전달)
+        if (inst->current_mode == BLE_MODE_BYPASS && inst->bypass_rx_callback != NULL) {
           inst->bypass_rx_callback((const uint8_t *)&ble_recv[old_pos], len);
         }
       } else {
@@ -162,14 +164,16 @@ static void ble_rx_task(void *pvParameter) {
         size_t len2 = pos;
         total_received = len1 + len2;
         LOG_DEBUG_RAW("BLE RX: ", &ble_recv[old_pos], len1);
-        if (inst->current_mode == BLE_MODE_AT) {
-          ble_cmd_parse_process(inst, &ble_recv[old_pos],
-                                  BLE_UART_MAX_RECV_SIZE - old_pos);
-          if (pos > 0) {
-            LOG_DEBUG_RAW("BLE RX: ", ble_recv, len2);
-            ble_cmd_parse_process(inst, ble_recv, pos);
-          }
-        } else if (inst->bypass_rx_callback != NULL) {
+        // 항상 파싱 (AT 응답 또는 앱 커맨드 처리)
+        ble_cmd_parse_process(inst, &ble_recv[old_pos],
+                                BLE_UART_MAX_RECV_SIZE - old_pos);
+        if (pos > 0) {
+          LOG_DEBUG_RAW("BLE RX: ", ble_recv, len2);
+          ble_cmd_parse_process(inst, ble_recv, pos);
+        }
+
+        // Bypass 모드에서는 콜백도 호출 (raw 데이터 전달)
+        if (inst->current_mode == BLE_MODE_BYPASS && inst->bypass_rx_callback != NULL) {
           inst->bypass_rx_callback((const uint8_t *)&ble_recv[old_pos], len1);
           if (pos > 0) {
             inst->bypass_rx_callback((const uint8_t *)ble_recv, len2);
