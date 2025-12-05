@@ -121,14 +121,14 @@ uint8_t gps_parse_nmea_term(gps_t *gps) {
       const char *talker = gps->nmea.term_str;
       const char *msg = &gps->nmea.term_str[2];
 
-      bool is_talker_gn = false;
+      bool is_valid_talker = false;
 
-      if (strncmp(talker, "GN", 2) == 0) {
-        is_talker_gn = true;
+      if (strncmp(talker, "GN", 2) == 0 || strncmp(talker, "GP", 2) == 0) {
+        is_valid_talker = true;
       }
 
       if (!strncmp(msg, "GGA", 3)) {
-        if (is_talker_gn) {
+        if (is_valid_talker) {
           gps->nmea.msg_type = GPS_NMEA_MSG_GGA;
 
 #if defined(USE_STORE_RAW_GGA)
