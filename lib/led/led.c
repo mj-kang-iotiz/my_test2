@@ -1,11 +1,16 @@
 #include "led.h"
 #include <string.h>
+#include "FreeRTOS.h"
+#include "task.h"
 
 #ifndef TAG
   #define TAG "LED"
 #endif
 
 #include "log.h"
+
+// LED 토글 최소 간격 (ms)
+#define LED_TOGGLE_MIN_INTERVAL_MS 500
 
 #define LED1_R_PORT GPIOC
 #define LED1_R_PIN GPIO_PIN_1
@@ -75,13 +80,24 @@ void led_set_toggle(led_id_t id) {
   if (id < LED_ID_MAX && id != LED_ID_NONE) {
     led_port_t *handle = &led_handle[id - 1];
     if (handle->color != LED_COLOR_NONE && handle->color != LED_COLOR_MAX) {
-      if (!handle->toggle) {
-        led_set_state(id, true);
-      } else {
-        led_set_state(id, false);
-      }
+      // 현재 tick 가져오기
+      uint32_t current_tick = xTaskGetTickCount();
 
-      handle->toggle = !handle->toggle;
+      // 마지막 토글로부터 경과 시간 계산
+      uint32_t elapsed_ticks = current_tick - handle->last_toggle_tick;
+      uint32_t elapsed_ms = (elapsed_ticks * 1000) / configTICK_RATE_HZ;
+
+      // 최소 간격 이상 경과했을 때만 토글
+      if (elapsed_ms >= LED_TOGGLE_MIN_INTERVAL_MS) {
+        if (!handle->toggle) {
+          led_set_state(id, true);
+        } else {
+          led_set_state(id, false);
+        }
+
+        handle->toggle = !handle->toggle;
+        handle->last_toggle_tick = current_tick;
+      }
     }
   }
 }

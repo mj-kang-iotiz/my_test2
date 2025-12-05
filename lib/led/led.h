@@ -5,6 +5,7 @@
 #include "stm32f4xx_hal_gpio.h"
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdint.h>
 
 typedef enum {
   LED_ID_NONE,
@@ -29,6 +30,7 @@ typedef struct {
   uint16_t g_pin;
   led_color_t color;
   bool toggle;
+  uint32_t last_toggle_tick;  // 마지막 토글 시간 (FreeRTOS tick)
 } led_port_t;
 
 void led_set_color(led_id_t id, led_color_t color);
