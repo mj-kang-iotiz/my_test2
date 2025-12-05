@@ -156,6 +156,10 @@ int gps_rtk_uart2_init(void)
  */
 void gps_uart2_comm_start(void)
 {
+  // 1. UART 먼저 활성화 (인터럽트 설정 전에 필수!)
+  LL_USART_Enable(USART2);
+
+  // 2. DMA 설정
   LL_DMA_SetPeriphAddress(DMA1, LL_DMA_STREAM_5, (uint32_t)&USART2->DR);
   LL_DMA_SetMemoryAddress(DMA1, LL_DMA_STREAM_5,
                           (uint32_t)&gps_recv_buf[uart2_gps_id]);
@@ -167,13 +171,14 @@ void gps_uart2_comm_start(void)
   LL_DMA_EnableIT_FE(DMA1, LL_DMA_STREAM_5);
   LL_DMA_EnableIT_DME(DMA1, LL_DMA_STREAM_5);
 
+  // 3. UART 인터럽트 활성화 (UART가 이미 활성화된 상태에서!)
   LL_USART_EnableIT_IDLE(USART2);
   LL_USART_EnableIT_PE(USART2);
   LL_USART_EnableIT_ERROR(USART2);
   LL_USART_EnableDMAReq_RX(USART2);
 
+  // 4. DMA 스트림 시작
   LL_DMA_EnableStream(DMA1, LL_DMA_STREAM_5);
-  LL_USART_Enable(USART2);
 }
 
 /**
@@ -455,6 +460,10 @@ int gps_rtk_uart4_init(void)
 
 void gps_uart4_comm_start(void)
 {
+  // 1. UART 먼저 활성화 (인터럽트 설정 전에 필수!)
+  LL_USART_Enable(UART4);
+
+  // 2. DMA 설정
   LL_DMA_SetPeriphAddress(DMA1, LL_DMA_STREAM_2, (uint32_t)&UART4->DR);
   LL_DMA_SetMemoryAddress(DMA1, LL_DMA_STREAM_2,
                           (uint32_t)&gps_recv_buf[uart4_gps_id]);
@@ -466,13 +475,14 @@ void gps_uart4_comm_start(void)
   LL_DMA_EnableIT_FE(DMA1, LL_DMA_STREAM_2);
   LL_DMA_EnableIT_DME(DMA1, LL_DMA_STREAM_2);
 
+  // 3. UART 인터럽트 활성화 (UART가 이미 활성화된 상태에서!)
   LL_USART_EnableIT_IDLE(UART4);
   LL_USART_EnableIT_PE(UART4);
   LL_USART_EnableIT_ERROR(UART4);
   LL_USART_EnableDMAReq_RX(UART4);
 
+  // 4. DMA 스트림 시작
   LL_DMA_EnableStream(DMA1, LL_DMA_STREAM_2);
-  LL_USART_Enable(UART4);
 }
 
 void gps_rtk_uart4_gpio_start(void)
