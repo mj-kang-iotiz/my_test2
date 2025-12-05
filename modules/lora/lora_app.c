@@ -769,8 +769,16 @@ static void lora_process_task(void *pvParameter)
         memcpy(temp_buf, &lora_recv[old_pos], len);
         temp_buf[len] = '\0';
 
-        // AT 명령어 응답 처리
-        if (instance.current_cmd_req != NULL)
+        // P2P 데이터 체크 (at+recv=...)
+        bool is_p2p_data = (strstr(temp_buf, "at+recv=") || strstr(temp_buf, "AT+RECV="));
+
+        // 초기화 중 P2P 데이터는 완전히 무시 (AT 응답 파싱도 하지 않음)
+        if (is_p2p_data && !instance.init_complete)
+        {
+          LOG_WARN("Ignoring P2P data during initialization");
+        }
+        // P2P 데이터가 아닌 경우에만 AT 명령어 응답 처리
+        else if (!is_p2p_data && instance.current_cmd_req != NULL)
         {
           bool result = lora_parse_at_response(temp_buf, len);
           LOG_INFO("Parse result: %s", result ? "OK" : "ERROR/NONE");
@@ -795,15 +803,9 @@ static void lora_process_task(void *pvParameter)
             LOG_WARN("No OK/ERROR in response");
           }
         }
-        else
-        {
-          LOG_WARN("current_cmd_req is NULL, skipping response handling");
-        }
 
-        // P2P 수신 데이터 처리 (at+recv=...)
-        // 초기화 완료 후에만 처리 (초기화 중 데이터는 무시)
-
-        if ((strstr(temp_buf, "at+recv=") || strstr(temp_buf, "AT+RECV=")) && instance.init_complete)
+        // P2P 수신 데이터 처리 (초기화 완료 후에만)
+        if (is_p2p_data && instance.init_complete)
         {
           lora_p2p_recv_data_t recv_data;
 
@@ -872,10 +874,6 @@ static void lora_process_task(void *pvParameter)
             }
           }
         }
-        else if ((strstr(temp_buf, "at+recv=") || strstr(temp_buf, "AT+RECV=")) && !instance.init_complete)
-        {
-          LOG_WARN("Ignoring P2P data during initialization");
-        }
 
         old_pos = pos;
       }
@@ -891,10 +889,19 @@ static void lora_process_task(void *pvParameter)
 
         LOG_INFO("LoRa recv (wrap): %s", temp_buf);
 
-        // 동일한 처리 로직
-        if (instance.current_cmd_req != NULL)
+        // P2P 데이터 체크 (at+recv=...)
+        bool is_p2p_data_wrap = (strstr(temp_buf, "at+recv=") || strstr(temp_buf, "AT+RECV="));
+
+        // 초기화 중 P2P 데이터는 완전히 무시 (AT 응답 파싱도 하지 않음)
+        if (is_p2p_data_wrap && !instance.init_complete)
+        {
+          LOG_WARN("Ignoring P2P data during initialization (wrap)");
+        }
+        // P2P 데이터가 아닌 경우에만 AT 명령어 응답 처리
+        else if (!is_p2p_data_wrap && instance.current_cmd_req != NULL)
         {
           bool result = lora_parse_at_response(temp_buf, len);
+          LOG_INFO("Parse result: %s", result ? "OK" : "ERROR/NONE");
 
           if (strstr(temp_buf, "OK") || strstr(temp_buf, "ERROR"))
           {
@@ -909,9 +916,14 @@ static void lora_process_task(void *pvParameter)
 
             xSemaphoreGive(instance.current_cmd_req->response_sem);
           }
+          else
+          {
+            LOG_WARN("No OK/ERROR in response");
+          }
         }
 
-        if ((strstr(temp_buf, "at+recv=") || strstr(temp_buf, "AT+RECV=")) && instance.init_complete)
+        // P2P 수신 데이터 처리 (초기화 완료 후에만)
+        if (is_p2p_data_wrap && instance.init_complete)
         {
           lora_p2p_recv_data_t recv_data;
 
@@ -979,10 +991,6 @@ static void lora_process_task(void *pvParameter)
               }
             }
           }
-        }
-        else if ((strstr(temp_buf, "at+recv=") || strstr(temp_buf, "AT+RECV=")) && !instance.init_complete)
-        {
-          LOG_WARN("Ignoring P2P data during initialization (wrap)");
         }
 
         old_pos = pos;
