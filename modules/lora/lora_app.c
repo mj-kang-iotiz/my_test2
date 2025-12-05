@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "led.h"
 
 #ifndef TAG
 #define TAG "LORA_APP"
@@ -101,6 +102,16 @@ static void lora_overall_init_complete(bool success, void *user_data)
   {
     instance.init_complete = true;
     LOG_INFO("LoRa init complete - now accepting P2P data");
+
+    // 초기화 성공 - 녹색 고정 표시
+    led_set_color(3, LED_COLOR_GREEN);
+    led_set_state(3, true);
+  }
+  else
+  {
+    // 초기화 실패 - 빨간색 고정 표시
+    led_set_color(3, LED_COLOR_RED);
+    led_set_state(3, true);
   }
 }
 
@@ -574,10 +585,18 @@ static void lora_tx_task(void *pvParameter)
   instance.tx_task_ready = true;
   LOG_INFO("LoRa TX Task ready");
 
+  const board_config_t *config = board_get_config();
+
   while (1)
   {
     if (xQueueReceive(instance.cmd_queue, &cmd_req, portMAX_DELAY) == pdTRUE)
     {
+      // BASE 모드일 때만 TX 활동 표시 (초기화 완료 후에만)
+      if (config->lora_mode == LORA_MODE_BASE && instance.init_complete)
+      {
+        led_set_toggle(3);
+      }
+
       LOG_INFO("LoRa sending command: %s", cmd_req.cmd);
 
       // 현재 명령어 요청 저장 (RX Task에서 응답 처리용)
@@ -753,6 +772,12 @@ static void lora_process_task(void *pvParameter)
   while (1)
   {
     xQueueReceive(instance.queue, &dummy, portMAX_DELAY);
+
+    // ROVER 모드일 때만 RX 활동 표시 (초기화 완료 후에만)
+    if (config->lora_mode == LORA_MODE_ROVER && instance.init_complete)
+    {
+      led_set_toggle(3);
+    }
 
     pos = lora_port_get_rx_pos();
     char *lora_recv = lora_port_get_recv_buf();
