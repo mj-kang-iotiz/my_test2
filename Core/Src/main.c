@@ -109,11 +109,9 @@ void initThread(void *pvParameter) {
 
 
   led_init();
-  led_set_color(3, LED_COLOR_RED);
-  led_set_state(3, true);
   gps_init_all();
 //  gsm_task_create(NULL);
-//  lora_instance_init();
+  lora_instance_init();  // LoRa LED 초기화 및 토글 활성화
 
   if(config->use_rs485)
   {
