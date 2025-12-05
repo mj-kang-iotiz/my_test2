@@ -684,27 +684,30 @@ static void gps_process_task(void *pvParameter) {
     xQueueReceive(inst->queue, &dummy,
                   portMAX_DELAY);
 
-    if (inst->gps.nmea_data.gga.fix == GPS_FIX_INVALID) {
-      if (use_led) {
-        led_set_color(2, LED_COLOR_RED);
+    // 초기화 완료 후에만 LED 토글 시작
+    if (init_done) {
+      if (inst->gps.nmea_data.gga.fix == GPS_FIX_INVALID) {
+        if (use_led) {
+          led_set_color(2, LED_COLOR_RED);
+        }
+      } else if (inst->gps.nmea_data.gga.fix < GPS_FIX_RTK_FIX ||
+                 inst->gps.nmea_data.gga.fix == GPS_FIX_RTK_FLOAT) {
+        if (use_led) {
+          led_set_color(2, LED_COLOR_YELLOW);
+        }
+      } else if (inst->gps.nmea_data.gga.fix ==  GPS_FIX_RTK_FIX) {
+        if (use_led) {
+          led_set_color(2, LED_COLOR_GREEN);
+        }
+      } else {
+        if (use_led) {
+          led_set_color(2, LED_COLOR_NONE);
+        }
       }
-    } else if (inst->gps.nmea_data.gga.fix < GPS_FIX_RTK_FIX ||
-               inst->gps.nmea_data.gga.fix == GPS_FIX_RTK_FLOAT) {
-      if (use_led) {
-        led_set_color(2, LED_COLOR_YELLOW);
-      }
-    } else if (inst->gps.nmea_data.gga.fix ==  GPS_FIX_RTK_FIX) {
-      if (use_led) {
-        led_set_color(2, LED_COLOR_GREEN);
-      }
-    } else {
-      if (use_led) {
-        led_set_color(2, LED_COLOR_NONE);
-      }
-    }
 
-    if (use_led) {
-      led_set_toggle(2);
+      if (use_led) {
+        led_set_toggle(2);
+      }
     }
 
     xSemaphoreTake(inst->gps.mutex, portMAX_DELAY);
