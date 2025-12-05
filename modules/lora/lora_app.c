@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "led.h"
 
 #ifndef TAG
 #define TAG "LORA_APP"
@@ -15,7 +16,7 @@
 
 #include "log.h"
 
-#define LORA_CMD_QUEUE_SIZE 15  // Increased for multiple RTCM types with fragmentation
+#define LORA_CMD_QUEUE_SIZE 25  // Increased for multiple RTCM types with fragmentation
 #define LORA_AT_CMD_TIMEOUT_MS 2000
 #define LORA_INIT_MAX_RETRY 3
 #define LORA_INIT_TIMEOUT_MS 2000 // work_mode AT command timeout
@@ -31,7 +32,7 @@ static void lora_tx_test_task(void *pvParameter);
  */
 static const char *lora_p2p_base_cmds[] = {
     "at+set_config=lora:work_mode:1\r\n",             // P2P 모드 (1=P2P, 0=LoRaWAN)
-    "at+set_config=lorap2p:920900000:7:0:1:8:14\r\n", // 920.9MHz, SF7, BW125kHz, CR4/5, Preamble8, 14dBm
+    "at+set_config=lorap2p:922500000:7:2:1:8:14\r\n", // 922.5MHz, SF7, BW500kHz, CR4/5, Preamble8, 14dBm
     "at+set_config=lorap2p:transfer_mode:2\r\n",      // Transfer mode 2 (BASE)
 };
 
@@ -40,7 +41,7 @@ static const char *lora_p2p_base_cmds[] = {
  */
 static const char *lora_p2p_rover_cmds[] = {
     "at+set_config=lora:work_mode:1\r\n",             // P2P 모드 (1=P2P, 0=LoRaWAN)
-    "at+set_config=lorap2p:920900000:7:0:1:8:14\r\n", // 920.9MHz, SF7, BW125kHz, CR4/5, Preamble8, 14dBm
+    "at+set_config=lorap2p:922500000:7:2:1:8:14\r\n", // 922.5MHz, SF7, BW500kHz, CR4/5, Preamble8, 14dBm
     "at+set_config=lorap2p:transfer_mode:1\r\n",      // Transfer mode 1 (ROVER)
 };
 
@@ -101,6 +102,15 @@ static void lora_overall_init_complete(bool success, void *user_data)
   {
     instance.init_complete = true;
     LOG_INFO("LoRa init complete - now accepting P2P data");
+
+    led_set_color(3, LED_COLOR_GREEN);
+    led_set_state(3, true);
+  }
+  else
+  {
+    LOG_ERR("LoRa init failed");
+    led_set_color(3, LED_COLOR_RED);
+    led_set_state(3, true);
   }
 }
 
@@ -574,10 +584,16 @@ static void lora_tx_task(void *pvParameter)
   instance.tx_task_ready = true;
   LOG_INFO("LoRa TX Task ready");
 
+  const board_config_t *config = board_get_config();
+
   while (1)
   {
     if (xQueueReceive(instance.cmd_queue, &cmd_req, portMAX_DELAY) == pdTRUE)
     {
+      if(config->lora_mode == LORA_MODE_BASE && instance.init_complete)
+      {
+        led_set_toggle(3);
+      }
       LOG_INFO("LoRa sending command: %s", cmd_req.cmd);
 
       // 현재 명령어 요청 저장 (RX Task에서 응답 처리용)
@@ -748,11 +764,18 @@ static void lora_process_task(void *pvParameter)
   else if (config->lora_mode == LORA_MODE_ROVER)
   {
     lora_init_p2p_rover_async(lora_overall_init_complete);
+    led_set_color(3, LED_COLOR_GREEN);
+    led_set_state(3, true);
   }
 
   while (1)
   {
     xQueueReceive(instance.queue, &dummy, portMAX_DELAY);
+
+    if(config->lora_mode == LORA_MODE_ROVER && instance.init_complete)
+    {
+      led_set_toggle(3);
+    }
 
     pos = lora_port_get_rx_pos();
     char *lora_recv = lora_port_get_recv_buf();
@@ -834,7 +857,7 @@ static void lora_process_task(void *pvParameter)
                   LOG_INFO("Valid RTCM packet - sending to GPS via UART");
 
                   // GPS UART로 직접 전송
-                  if (!gps_send_raw_data(GPS_ID_ROVER,
+                  if (!gps_send_raw_data(GPS_ID_BASE,
                                          instance.rtcm_reassembly.buffer,
                                          instance.rtcm_reassembly.expected_len))
                   {
@@ -942,7 +965,7 @@ static void lora_process_task(void *pvParameter)
                   LOG_INFO("Valid RTCM packet - sending to GPS via UART (wrap)");
 
                   // GPS UART로 직접 전송
-                  if (!gps_send_raw_data(GPS_ID_ROVER,
+                  if (!gps_send_raw_data(GPS_ID_BASE,
                                          instance.rtcm_reassembly.buffer,
                                          instance.rtcm_reassembly.expected_len))
                   {
@@ -1285,7 +1308,7 @@ bool lora_send_p2p_raw_async(const uint8_t *data, size_t len, uint32_t timeout_m
 
   // Convert binary data to HEX ASCII string
   // Each byte becomes 2 HEX characters, plus null terminator
-  char hex_string[512];  // 118 * 2 + 1 = 237 bytes max
+  char hex_string[300];  // 118 * 2 + 1 = 237 bytes max
   if (len * 2 >= sizeof(hex_string))
   {
     LOG_ERR("HEX string buffer too small");
@@ -1304,14 +1327,16 @@ bool lora_send_p2p_raw_async(const uint8_t *data, size_t len, uint32_t timeout_m
   }
 
   // Calculate ToA (Time on Air): (bytes / 118) * 350ms * 1.2
-  uint32_t toa_ms = (len * 350 / 118);  // Base ToA
-  toa_ms = toa_ms * 12 / 10;  // Add 20% margin (x1.2)
-  if (toa_ms < 60) {
-    toa_ms = 60;  // Minimum ToA
-  }
+  // uint32_t toa_ms = (len * 350 / 118);  // Base ToA
+  // toa_ms = toa_ms * 12 / 10;  // Add 20% margin (x1.2)
+  // if (toa_ms < 60) {
+  //   toa_ms = 60;  // Minimum ToA
+  // }
+
+  uint32_t toa_ms = 0;
 
   // Create AT command: at+send=lorap2p:<HEX_STRING>\r\n
-  char cmd[600];
+  char cmd[300];
   snprintf(cmd, sizeof(cmd), "at+send=lorap2p:%s\r\n", hex_string);
 
   // Use async command sending mechanism

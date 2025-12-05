@@ -201,21 +201,22 @@ void _add_hp_avg_data(gps_instance_t *inst) {
 
 static const char *um982_base_cmds[] = {
 	// "CONFIG ANTENNA POWERON\r\n",
+  // "FRESET\r\n",
   "unmask BDS\r\n",
   "unmask GPS\r\n",
-  "unmask GLO\r\n",
+  "mask GLO\r\n",
   "unmask GAL\r\n",
-  // "MODE BASE TIME 180\r\n",
-  // "mode base lat Lon height\r\n", // lat=40.07898324818,lon=116.23660197714,height=60.4265
   "rtcm1033 com1 10\r\n",
   "rtcm1006 com1 10\r\n",
-  "rtcm1074 com1 2\r\n", // gps msm4
-  // "rtcm1124 com1 2\r\n", // beidou msm4
-  // "rtcm1084 com1 2\r\n", // glonass msm4
-  "rtcm1094 com1 2\r\n", // galileo msm4
+  "rtcm1074 com1 1\r\n", // gps msm4
+  "rtcm1124 com1 1\r\n", // beidou msm4
+  // "rtcm1084 com1 1\r\n", // glonass msm4
+  "rtcm1094 com1 1\r\n", // galileo msm4
   "gpgga com1 1\r\n",
   // "gpgsv com1 1\r\n",
-  "BESTNAVB 1\r\n",
+  // "BESTNAVB 1\r\n",
+  "MODE BASE TIME 120 0.1\r\n",
+  // "mode base 37.4136149088 127.125455729 62.0923\r\n", // lat=40.07898324818,lon=116.23660197714,height=60.4265
 };
 
 static const char *um982_rover_cmds[] = {
@@ -228,7 +229,7 @@ static const char *um982_rover_cmds[] = {
   // "gpgsv com1 1\r\n",
   "gpths com1 1\r\n",
   // "OBSVHA COM1 1\r\n", // slave antenna
-  "BESTNAVB 1\r\n",
+  // "BESTNAVB 1\r\n",
   "CONFIG HEADING FIXLENGTH\r\n"
   "config heading length 100 40\r\n",
   "UNIHEADINGA 1\r\n",
@@ -262,12 +263,12 @@ static void overall_init_complete(bool success, void *user_data) {
   if(success)
   {
     #if defined(BOARD_TYPE_BASE_UNICORE)
-    char buffer[64];
-    snprintf(buffer, sizeof(buffer),
-             "mode base %.10f %.10f %.4f\r\n",
-             40.07898324818, 116.23660197714, 60.4265);
-       gps_send_command_async(0, buffer,
-                           1000, fix_init_complete, 0);
+    // char buffer[64];
+    // snprintf(buffer, sizeof(buffer),
+    //          "mode base %.10f %.10f %.4f\r\n",
+    //          40.07898324818, 116.23660197714, 60.4265);
+    //    gps_send_command_async(0, buffer,
+    //                        1000, fix_init_complete, 0);
 
     #endif
   }
@@ -429,7 +430,7 @@ void gps_evt_handler(gps_t *gps, gps_event_t event, gps_procotol_t protocol,
     if (msg.nmea == GPS_NMEA_MSG_GGA) {
     	if(config->board == BOARD_TYPE_BASE_F9P || config->board == BOARD_TYPE_BASE_UM982)
     	{
-    	    if (gps->nmea_data.gga.fix == GPS_FIX_RTK_FIX)
+    	    if (gps->nmea_data.gga.fix == GPS_FIX_MANUAL_POS)
     	    {
     	        _add_gga_avg_data(inst, gps->nmea_data.gga.lat, gps->nmea_data.gga.lon,
     	                          gps->nmea_data.gga.alt);
@@ -652,6 +653,7 @@ static void gps_process_task(void *pvParameter) {
   }
 #endif
   bool init_done = false;
+  const board_config_t *config = board_get_config();
   
   while (1) {
     ubx_init_async_process(&inst->gps);
@@ -660,7 +662,7 @@ static void gps_process_task(void *pvParameter) {
             ubx_init_state_t state = ubx_init_async_get_state(&inst->gps);
             if (state == UBX_INIT_STATE_DONE) {
                 printf("✓ UBX initialization completed!\n");
-                const board_config_t *config = board_get_config();
+                
                 if(config->board == BOARD_TYPE_BASE_F9P)
                 {
                   user_params_t* params = flash_params_get_current();
@@ -684,20 +686,34 @@ static void gps_process_task(void *pvParameter) {
     xQueueReceive(inst->queue, &dummy,
                   portMAX_DELAY);
 
-    if (inst->gps.nmea_data.gga.fix == GPS_FIX_INVALID) {
+    // base : quality 0,1,2 -> red, 4,5 -> yellow, 7 -> green, etc -> none
+    // rover : quality 0,1,2 -> red, 5 -> yellow, 4 -> green, etc -> none
+    if (inst->gps.nmea_data.gga.fix <= GPS_FIX_DGPS) {
       if (use_led) {
         led_set_color(2, LED_COLOR_RED);
       }
-    } else if (inst->gps.nmea_data.gga.fix < GPS_FIX_RTK_FIX ||
-               inst->gps.nmea_data.gga.fix == GPS_FIX_RTK_FLOAT) {
+    } else if (inst->gps.nmea_data.gga.fix == GPS_FIX_RTK_FLOAT) {
       if (use_led) {
         led_set_color(2, LED_COLOR_YELLOW);
       }
     } else if (inst->gps.nmea_data.gga.fix ==  GPS_FIX_RTK_FIX) {
       if (use_led) {
+        if(config->board == BOARD_TYPE_ROVER_F9P || config->board == BOARD_TYPE_ROVER_UM982)
+        {
+            led_set_color(2, LED_COLOR_GREEN);
+        }
+        else if(config->board == BOARD_TYPE_BASE_F9P || config->board == BOARD_TYPE_BASE_UM982)
+        {
+            led_set_color(2, LED_COLOR_YELLOW);
+        }
+      }
+    } else if(inst->gps.nmea_data.gga.fix == GPS_FIX_MANUAL_POS)
+    {
+      if (use_led) {
         led_set_color(2, LED_COLOR_GREEN);
       }
-    } else {
+    }
+    else {
       if (use_led) {
         led_set_color(2, LED_COLOR_NONE);
       }

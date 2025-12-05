@@ -184,7 +184,7 @@ static void gd_handler(ble_instance_t *inst, const char *param)
     user_params_t *params = flash_params_get_current();
     char device_name[32];
 
-    sprintf(device_name, "Get %s\n", params->ble_device_name);
+    sprintf(device_name, "Get %s\n\r", params->ble_device_name);
     BLE_AT_RESP_SEND(device_name);
 }
 static void gi_handler(ble_instance_t *inst, const char *param)
@@ -192,7 +192,7 @@ static void gi_handler(ble_instance_t *inst, const char *param)
     user_params_t *params = flash_params_get_current();
     char id[32];
 
-    sprintf(id, "Get %s\n", params->ntrip_id);
+    sprintf(id, "Get %s\n\r", params->ntrip_id);
     BLE_AT_RESP_SEND(id);
 }
 static void gp_handler(ble_instance_t *inst, const char *param)
@@ -200,7 +200,7 @@ static void gp_handler(ble_instance_t *inst, const char *param)
     user_params_t *params = flash_params_get_current();
     char pw[32];
 
-    sprintf(pw, "Get %s\n", params->ntrip_pw);
+    sprintf(pw, "Get %s\n\r", params->ntrip_pw);
     BLE_AT_RESP_SEND(pw);
 }
 static void gg_handler(ble_instance_t *inst, const char *param)
@@ -208,7 +208,7 @@ static void gg_handler(ble_instance_t *inst, const char *param)
     user_params_t *params = flash_params_get_current();
     char loc[64];
 
-    sprintf(loc, "Get %s,%s,%s\n", params->lat, params->lon, params->alt);
+    sprintf(loc, "Get %s,%s,%s\n\r", params->lat, params->lon, params->alt);
     BLE_AT_RESP_SEND(loc);
 }
 static void rs_handler(ble_instance_t *inst, const char *param)

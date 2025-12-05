@@ -137,9 +137,7 @@ static void ble_rx_task(void *pvParameter) {
   uint8_t dummy = 0;
   size_t total_received = 0;
 
-  LOG_INFO("BLE RX Task started");  
-  vTaskDelay(pdMS_TO_TICKS(50));
-  ble_set_advon_async(1000);
+  LOG_INFO("BLE RX Task started");
 
   while (1) {
     xQueueReceive(inst->rx_queue, &dummy, portMAX_DELAY);
@@ -154,9 +152,11 @@ static void ble_rx_task(void *pvParameter) {
         size_t len = pos - old_pos;
         total_received = len;
         LOG_DEBUG_RAW("BLE RX: ", &ble_recv[old_pos], len);
-        if (inst->current_mode == BLE_MODE_AT) {
-          ble_cmd_parse_process(inst, &ble_recv[old_pos], len);
-        } else if (inst->bypass_rx_callback != NULL) {
+        // 항상 파싱 (AT 응답 또는 앱 커맨드 처리)
+        ble_cmd_parse_process(inst, &ble_recv[old_pos], len);
+
+        // Bypass 모드에서는 콜백도 호출 (raw 데이터 전달)
+        if (inst->current_mode == BLE_MODE_BYPASS && inst->bypass_rx_callback != NULL) {
           inst->bypass_rx_callback((const uint8_t *)&ble_recv[old_pos], len);
         }
       } else {
@@ -164,14 +164,16 @@ static void ble_rx_task(void *pvParameter) {
         size_t len2 = pos;
         total_received = len1 + len2;
         LOG_DEBUG_RAW("BLE RX: ", &ble_recv[old_pos], len1);
-        if (inst->current_mode == BLE_MODE_AT) {
-          ble_cmd_parse_process(inst, &ble_recv[old_pos],
-                                  BLE_UART_MAX_RECV_SIZE - old_pos);
-          if (pos > 0) {
-            LOG_DEBUG_RAW("BLE RX: ", ble_recv, len2);
-            ble_cmd_parse_process(inst, ble_recv, pos);
-          }
-        } else if (inst->bypass_rx_callback != NULL) {
+        // 항상 파싱 (AT 응답 또는 앱 커맨드 처리)
+        ble_cmd_parse_process(inst, &ble_recv[old_pos],
+                                BLE_UART_MAX_RECV_SIZE - old_pos);
+        if (pos > 0) {
+          LOG_DEBUG_RAW("BLE RX: ", ble_recv, len2);
+          ble_cmd_parse_process(inst, ble_recv, pos);
+        }
+
+        // Bypass 모드에서는 콜백도 호출 (raw 데이터 전달)
+        if (inst->current_mode == BLE_MODE_BYPASS && inst->bypass_rx_callback != NULL) {
           inst->bypass_rx_callback((const uint8_t *)&ble_recv[old_pos], len1);
           if (pos > 0) {
             inst->bypass_rx_callback((const uint8_t *)ble_recv, len2);
@@ -285,10 +287,10 @@ bool ble_send(const char *data, size_t len, bool is_at) {
   }
 
   // AT 커맨드 전송 중에는 일반 전송 차단 (is_at=false 요청)
-  xSemaphoreTake(ble_instance.mutex, portMAX_DELAY);
+//  xSemaphoreTake(ble_instance.mutex, portMAX_DELAY);
   bool is_at_mode = (ble_instance.current_mode == BLE_MODE_AT);
   bool has_async_request = (ble_instance.async_request != NULL);
-  xSemaphoreGive(ble_instance.mutex);
+//  xSemaphoreGive(ble_instance.mutex);
 
   if (is_at_mode && !is_at && has_async_request) {
     LOG_WARN("BLE in AT command mode - blocking normal transmission");
@@ -358,7 +360,15 @@ ble_at_status_t ble_send_at_command_async(const char *at_cmd, const char *expect
   xSemaphoreGive(ble_instance.mutex);
 
   // 모드 전환 대기 (BLE 모듈이 안정화될 시간)
-  vTaskDelay(pdMS_TO_TICKS(50));
+  vTaskDelay(pdMS_TO_TICKS(100));
+
+  // DMA 버퍼의 현재 위치를 업데이트하여 이전 데이터 무시
+  // (Bypass 모드에서 받은 데이터가 남아있을 수 있음)
+  xSemaphoreTake(ble_instance.mutex, portMAX_DELAY);
+  // RX task의 old_pos를 현재 DMA 위치로 동기화하는 것이 이상적이지만,
+  // 간단하게 잠시 대기하여 RX task가 버퍼를 처리하도록 함
+  xSemaphoreGive(ble_instance.mutex);
+  vTaskDelay(pdMS_TO_TICKS(10));  // RX task가 기존 데이터 처리하도록 여유 시간
 
   // AT 커맨드 전송
   LOG_INFO("Sending AT command: %s", at_cmd);
@@ -370,6 +380,10 @@ ble_at_status_t ble_send_at_command_async(const char *at_cmd, const char *expect
     LOG_ERR("Failed to send AT command");
     return BLE_AT_STATUS_ERROR;
   }
+
+  // TX task가 실제로 UART로 전송할 시간 확보
+  // ble_send()는 큐에만 추가하므로, TX task 실행까지 대기 필요
+  vTaskDelay(pdMS_TO_TICKS(10));
 
   // 응답 대기 (타임아웃 포함)
   LOG_INFO("Waiting for response: %s (timeout: %lu ms)", expected_response, timeout_ms);
@@ -535,9 +549,9 @@ ble_connection_state_t ble_get_connection_state(void) {
     return BLE_CONN_DISCONNECTED;
   }
 
-  xSemaphoreTake(ble_instance.mutex, portMAX_DELAY);
+//  xSemaphoreTake(ble_instance.mutex, portMAX_DELAY);
   ble_connection_state_t state = ble_instance.conn_state;
-  xSemaphoreGive(ble_instance.mutex);
+ // xSemaphoreGive(ble_instance.mutex);
 
   return state;
 }
@@ -548,9 +562,9 @@ void ble_set_connection_state(ble_connection_state_t state) {
     return;
   }
 
-  xSemaphoreTake(ble_instance.mutex, portMAX_DELAY);
+//  xSemaphoreTake(ble_instance.mutex, portMAX_DELAY);
   ble_instance.conn_state = state;
-  xSemaphoreGive(ble_instance.mutex);
+//  xSemaphoreGive(ble_instance.mutex);
 
   if (state == BLE_CONN_CONNECTED) {
     LOG_INFO("BLE Connected");

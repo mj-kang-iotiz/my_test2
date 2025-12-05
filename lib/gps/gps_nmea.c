@@ -15,7 +15,7 @@ static void parse_nmea_gga(gps_t *gps);
 static double parse_lat_lon(gps_t *gps) {
   double val, deg, min;
 
-  val = gps_parse_float(gps);
+  val = gps_parse_double(gps);
   deg = (double)((int)(((int)val / 100)));
   min = val - (deg * (double)100);
   val = deg + (min / (double)(60));

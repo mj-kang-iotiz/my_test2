@@ -43,6 +43,7 @@
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
 extern void xPortSysTickHandler(void);
+extern TIM_HandleTypeDef htim1;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -69,7 +70,7 @@ extern void xPortSysTickHandler(void);
  */
 void NMI_Handler(void) {
   /* USER CODE BEGIN NonMaskableInt_IRQn 0 */
-
+	NVIC_SystemReset();
   /* USER CODE END NonMaskableInt_IRQn 0 */
   /* USER CODE BEGIN NonMaskableInt_IRQn 1 */
   while (1) {
@@ -82,7 +83,7 @@ void NMI_Handler(void) {
  */
 void HardFault_Handler(void) {
   /* USER CODE BEGIN HardFault_IRQn 0 */
-
+	NVIC_SystemReset();
   /* USER CODE END HardFault_IRQn 0 */
   while (1) {
     /* USER CODE BEGIN W1_HardFault_IRQn 0 */
@@ -95,7 +96,7 @@ void HardFault_Handler(void) {
  */
 void MemManage_Handler(void) {
   /* USER CODE BEGIN MemoryManagement_IRQn 0 */
-
+	NVIC_SystemReset();
   /* USER CODE END MemoryManagement_IRQn 0 */
   while (1) {
     /* USER CODE BEGIN W1_MemoryManagement_IRQn 0 */
@@ -108,7 +109,7 @@ void MemManage_Handler(void) {
  */
 void BusFault_Handler(void) {
   /* USER CODE BEGIN BusFault_IRQn 0 */
-
+	NVIC_SystemReset();
   /* USER CODE END BusFault_IRQn 0 */
   while (1) {
     /* USER CODE BEGIN W1_BusFault_IRQn 0 */
@@ -121,7 +122,7 @@ void BusFault_Handler(void) {
  */
 void UsageFault_Handler(void) {
   /* USER CODE BEGIN UsageFault_IRQn 0 */
-
+	NVIC_SystemReset();
   /* USER CODE END UsageFault_IRQn 0 */
   while (1) {
     /* USER CODE BEGIN W1_UsageFault_IRQn 0 */
@@ -194,6 +195,16 @@ void EXTI9_5_IRQHandler(void) {
   /* USER CODE END EXTI9_5_IRQn 1 */
 }
 
+void TIM1_UP_TIM10_IRQHandler(void)
+{
+  /* USER CODE BEGIN TIM1_UP_TIM10_IRQn 0 */
+
+  /* USER CODE END TIM1_UP_TIM10_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim1);
+  /* USER CODE BEGIN TIM1_UP_TIM10_IRQn 1 */
+
+  /* USER CODE END TIM1_UP_TIM10_IRQn 1 */
+}
 
 
 /**

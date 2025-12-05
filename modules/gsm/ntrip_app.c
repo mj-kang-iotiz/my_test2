@@ -178,6 +178,7 @@ static int ntrip_connect_to_server(tcp_socket_t *sock)
 
              NTRIP_MAX_CONNECT_RETRY, params->ntrip_url, ntrip_port);
 
+             led_set_color(LED_ID_1, LED_COLOR_RED);
     ret = tcp_connect(sock, NTRIP_CONTEXT_ID, params->ntrip_url,
 
                       ntrip_port, 10000);
@@ -209,6 +210,7 @@ static int ntrip_connect_to_server(tcp_socket_t *sock)
       ret = tcp_recv(sock, recv_buf, sizeof(recv_buf), 0);
       if (ret > 0)
       {
+        led_set_color(LED_ID_1, LED_COLOR_YELLOW);
         return 0; // 연결 성공
       }
     }
@@ -286,6 +288,7 @@ static void ntrip_tcp_recv_task(void *pvParameter)
   int reconnect_count = 0; // 총 재연결 시도 횟수
 
   LOG_INFO("NTRIP 태스크 시작");
+  led_set_color(LED_ID_1, LED_COLOR_RED);
 
   if (!g_gga_send_queue)
   {
@@ -342,7 +345,6 @@ static void ntrip_tcp_recv_task(void *pvParameter)
 
   // ICY 200 OK\r\n\r\n 수신
   ret = tcp_recv(sock, recv_buf, sizeof(recv_buf), 0);
-  led_set_color(1, LED_COLOR_GREEN);
 
   while (1)
   {
@@ -351,6 +353,7 @@ static void ntrip_tcp_recv_task(void *pvParameter)
     if (ret > 0)
     {
       // 수신 성공
+      led_set_color(LED_ID_1, LED_COLOR_GREEN);
       timeout_count = 0;
       LOG_DEBUG("수신 데이터 (%d bytes):", ret);
 
@@ -359,6 +362,7 @@ static void ntrip_tcp_recv_task(void *pvParameter)
     else if (ret == 0)
     {
       // 타임아웃
+      led_set_color(LED_ID_1, LED_COLOR_YELLOW);
       timeout_count++;
 
       LOG_WARN("수신 타임아웃 (%d/%d)", timeout_count, NTRIP_MAX_TIMEOUT_COUNT);
@@ -377,7 +381,7 @@ static void ntrip_tcp_recv_task(void *pvParameter)
         // 재연결 시작 전 큐 상태 확인
         UBaseType_t queued_gga = uxQueueMessagesWaiting(g_gga_send_queue);
         LOG_WARN("소켓 재연결 시도 (큐에 GGA %lu개 대기중)", queued_gga);
-        led_set_color(1, LED_COLOR_YELLOW);
+        led_set_color(LED_ID_1, LED_COLOR_RED);
 
         g_ntrip_connected = false;
 
@@ -395,7 +399,7 @@ static void ntrip_tcp_recv_task(void *pvParameter)
         }
         else
         {
-          led_set_color(1, LED_COLOR_GREEN);
+          led_set_color(1, LED_COLOR_YELLOW);
           timeout_count = 0; // 타임아웃 카운터 리셋
 
           // 재연결 중 쌓인 오래된 GGA 버리기 (최신 1개만 유지)
@@ -429,7 +433,7 @@ static void ntrip_tcp_recv_task(void *pvParameter)
       gsm_tcp_state_t state = tcp_get_socket_state(sock, NTRIP_CONNECT_ID);
       LOG_ERR("현재 소켓 상태: %d", state);
 
-      led_set_color(1, LED_COLOR_YELLOW);
+      led_set_color(1, LED_COLOR_RED);
 
       // ★ 연결 상태만 false로 설정 (태스크는 살려둠)
       g_ntrip_connected = false;
@@ -447,8 +451,7 @@ static void ntrip_tcp_recv_task(void *pvParameter)
       {
         LOG_INFO("재연결 성공");
         timeout_count = 0;
-        led_set_color(1, LED_COLOR_GREEN);
-
+        led_set_color(LED_ID_1, LED_COLOR_YELLOW);
         // 재연결 중 쌓인 오래된 GGA 버리기 (최신 1개만 유지)
         UBaseType_t queued_gga = uxQueueMessagesWaiting(g_gga_send_queue);
         if (queued_gga > 1)

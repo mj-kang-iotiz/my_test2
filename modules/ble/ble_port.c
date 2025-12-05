@@ -21,9 +21,10 @@
 static int ble_uart5_change_baudrate(uint32_t baudrate);
 static int ble_send_at_command_sync(const char *at_cmd, const char *expected_response, uint32_t timeout_ms);
 static int ble_uart5_recv_line_poll(char *buf, size_t buf_size, uint32_t timeout_ms);
+static int ble_send_uart_change_command(uint32_t baudrate, uint32_t timeout_ms);
+static int ble_configure_module(void);
 
-
-#define BLE_PORT_UART USART5
+#define BLE_PORT_UART UART5
 #define BLE_PORT_UART_DMA DMA1
 #define BLE_PORT_UART_DMA_STREAM LL_DMA_STREAM_0
 
@@ -31,39 +32,28 @@ static char ble_recv_buf[1][1024];
 static QueueHandle_t ble_queues[1] = {NULL};
 
 int ble_set_at_cmd_mode(void);
+int ble_set_bypass_mode(void);
 
 static void ble_uart5_dma_init(void)
 {
-  /* Init with LL driver */
   /* DMA controller clock enable */
   LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
 
-  /* DMA interrupt init */
-  /* DMA1_Stream0_IRQn interrupt configuration */
-  NVIC_SetPriority(DMA1_Stream0_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),5, 0));
-  NVIC_EnableIRQ(DMA1_Stream0_IRQn);
-
+  /* DMA interrupt init - 우선순위만 설정, IRQ는 나중에 활성화 */
+  NVIC_SetPriority(DMA1_Stream0_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 5, 0));
+  /* NVIC_EnableIRQ는 comm_start에서 호출 */
 }
 
-static void ble_uart5_init(void)
+static void ble_uart5_gpio_init(void)
 {
- 
-  /* USER CODE BEGIN UART5_Init 0 */
-
-  /* USER CODE END UART5_Init 0 */
-
-  LL_USART_InitTypeDef USART_InitStruct = {0};
-
   LL_GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-  /* Peripheral clock enable */
-  LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_UART5);
 
   LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOC);
   LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOD);
-  /**UART5 GPIO Configuration
-  PC12   ------> UART5_TX
-  PD2   ------> UART5_RX
+
+  /* UART5 GPIO Configuration
+     PC12   ------> UART5_TX
+     PD2    ------> UART5_RX
   */
   GPIO_InitStruct.Pin = LL_GPIO_PIN_12;
   GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
@@ -80,35 +70,34 @@ static void ble_uart5_init(void)
   GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
   GPIO_InitStruct.Alternate = LL_GPIO_AF_8;
   LL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+}
 
-  /* UART5 DMA Init */
+static void ble_uart5_init(void)
+{
+  LL_USART_InitTypeDef USART_InitStruct = {0};
 
-  /* UART5_RX Init */
+  /* Peripheral clock enable */
+  LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_UART5);
+
+  /* GPIO 초기화 */
+  ble_uart5_gpio_init();
+
+  /* DMA 설정 (스트림은 아직 활성화하지 않음) */
   LL_DMA_SetChannelSelection(DMA1, LL_DMA_STREAM_0, LL_DMA_CHANNEL_4);
-
   LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_STREAM_0, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
-
   LL_DMA_SetStreamPriorityLevel(DMA1, LL_DMA_STREAM_0, LL_DMA_PRIORITY_LOW);
-
   LL_DMA_SetMode(DMA1, LL_DMA_STREAM_0, LL_DMA_MODE_CIRCULAR);
-
   LL_DMA_SetPeriphIncMode(DMA1, LL_DMA_STREAM_0, LL_DMA_PERIPH_NOINCREMENT);
-
   LL_DMA_SetMemoryIncMode(DMA1, LL_DMA_STREAM_0, LL_DMA_MEMORY_INCREMENT);
-
   LL_DMA_SetPeriphSize(DMA1, LL_DMA_STREAM_0, LL_DMA_PDATAALIGN_BYTE);
-
   LL_DMA_SetMemorySize(DMA1, LL_DMA_STREAM_0, LL_DMA_MDATAALIGN_BYTE);
-
   LL_DMA_DisableFifoMode(DMA1, LL_DMA_STREAM_0);
 
-  /* UART5 interrupt Init */
-  NVIC_SetPriority(UART5_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),5, 0));
-  NVIC_EnableIRQ(UART5_IRQn);
+  /* ★★★ 중요: UART 인터럽트 NVIC는 여기서 설정만 하고, 활성화는 comm_start에서 ★★★ */
+  NVIC_SetPriority(UART5_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 5, 0));
+  /* NVIC_EnableIRQ(UART5_IRQn); ← 이것을 comm_start로 이동! */
 
-  /* USER CODE BEGIN UART5_Init 1 */
-
-  /* USER CODE END UART5_Init 1 */
+  /* USART 설정 */
   USART_InitStruct.BaudRate = 9600;
   USART_InitStruct.DataWidth = LL_USART_DATAWIDTH_8B;
   USART_InitStruct.StopBits = LL_USART_STOPBITS_1;
@@ -118,102 +107,142 @@ static void ble_uart5_init(void)
   USART_InitStruct.OverSampling = LL_USART_OVERSAMPLING_16;
   LL_USART_Init(UART5, &USART_InitStruct);
   LL_USART_ConfigAsyncMode(UART5);
-  /* USER CODE BEGIN UART5_Init 2 */
-
-  /* USER CODE END UART5_Init 2 */
 }
 
 int ble_uart5_comm_start(void) {
+  /* ★★★ 태스크 컨텍스트에서 호출됨 - vTaskDelay 사용 가능 ★★★ */
+  
+  /* 1. BLE 모듈 설정 (baudrate 변경, advertising 시작 등) */
+  ble_configure_module();
+  
+  /* 2. DMA 설정 */
   LL_DMA_SetPeriphAddress(DMA1, LL_DMA_STREAM_0, (uint32_t)&UART5->DR);
-  LL_DMA_SetMemoryAddress(DMA1, LL_DMA_STREAM_0,
-                          (uint32_t)&ble_recv_buf[0]);
-  LL_DMA_SetDataLength(DMA1, LL_DMA_STREAM_0,
-                       sizeof(ble_recv_buf[0]));
+  LL_DMA_SetMemoryAddress(DMA1, LL_DMA_STREAM_0, (uint32_t)&ble_recv_buf[0]);
+  LL_DMA_SetDataLength(DMA1, LL_DMA_STREAM_0, sizeof(ble_recv_buf[0]));
+  
+  /* DMA 에러 인터럽트 활성화 */
   LL_DMA_EnableIT_TE(DMA1, LL_DMA_STREAM_0);
   LL_DMA_EnableIT_FE(DMA1, LL_DMA_STREAM_0);
   LL_DMA_EnableIT_DME(DMA1, LL_DMA_STREAM_0);
 
+  /* 3. 인터럽트 활성화 (큐 설정 후이므로 안전) */
+  NVIC_EnableIRQ(DMA1_Stream0_IRQn);
+  NVIC_EnableIRQ(UART5_IRQn);
+
+  /* USART 인터럽트 및 DMA 활성화 */
   LL_USART_EnableIT_IDLE(UART5);
   LL_USART_EnableIT_PE(UART5);
   LL_USART_EnableIT_ERROR(UART5);
   LL_USART_EnableDMAReq_RX(UART5);
 
+  /* DMA 스트림 및 USART 활성화 */
   LL_DMA_EnableStream(DMA1, LL_DMA_STREAM_0);
   LL_USART_Enable(UART5);
 
+  LOG_INFO("BLE UART5 DMA communication started");
   return 0;
 }
 
+/*
+ * hw_init: 하드웨어 초기화만 수행 (스케줄러 시작 전 호출 가능)
+ * - GPIO, UART, DMA 설정
+ * - 폴링 통신이나 vTaskDelay 사용 금지!
+ */
 int ble_uart5_hw_init(void) {
-  int ret;
-
-  uint32_t current_baudrate = 9600;  // 최종 확정된 속도
-
- 
-
-  // 1. DMA 초기화 (아직 시작하지 않음)
-
+  // 1. DMA 클럭 활성화
   ble_uart5_dma_init();
 
- 
-
-  // 2. UART 9600bps로 초기화
-
+  // 2. UART 초기화 (NVIC 설정만, 활성화는 comm_start에서)
   ble_uart5_init();
+  
+  // 3. GPIO 초기 상태 설정 (Bypass 모드)
+  ble_set_bypass_mode();
 
-  LOG_INFO("BLE UART initialized at 9600 bps");
+  LOG_INFO("BLE hardware initialized (UART5 @ 9600 bps default)");
+  
+  // ★★★ 중요: 여기서는 폴링/딜레이 사용하지 않음! ★★★
+  // BLE 모듈 설정은 comm_start()에서 수행 (태스크 컨텍스트)
+  
+  return 0;
+}
 
- 
+/*
+ * 모듈 설정 (태스크 컨텍스트에서만 호출!)
+ * - baudrate 변경, AT+ADVON 등
+ */
+static int ble_configure_module(void) {
+  int ret;
+  uint32_t current_baudrate = 9600;
 
-  // 3. AT 모드로 전환 (토글로 에지 생성)
-  ble_set_bypass_mode();  // Low 먼저
-  HAL_Delay(200);
-  ble_set_at_cmd_mode();  // High
-  HAL_Delay(2000);  // 모드 전환 대기 증가
+  LOG_INFO("BLE module configuration started (task context)");
 
+  // 1. UART 활성화 (폴링 모드로 사용)
   LL_USART_Enable(UART5);
 
-  HAL_Delay(1000);  // 모드 전환 대기
+  // 2. AT 커맨드 모드로 전환
+  ble_set_bypass_mode();
+  vTaskDelay(pdMS_TO_TICKS(100));  // 이제 안전하게 사용 가능
+  ble_set_at_cmd_mode();
+  vTaskDelay(pdMS_TO_TICKS(300));
 
- 
+  // 3. 부팅 메시지 버퍼 클리어
+  while (LL_USART_IsActiveFlag_RXNE(UART5)) {
+    (void)LL_USART_ReceiveData8(UART5);
+  }
+  LOG_INFO("UART RX buffer cleared");
 
-  // 4. 자동 속도 감지: 9600bps 통신 확인
-
+  // 4. 자동 baudrate 감지 및 설정
   LOG_INFO("Auto-detecting BLE module baudrate...");
-
   LOG_INFO("Testing 9600 bps...");
 
-  ret = ble_send_at_command_sync("AT\r\n", "+OK", 2000);  // \r\n 추가, 타임아웃 증가
+  ret = ble_send_at_command_sync("AT\r", "+OK", 2000);
 
- 
   if (ret == 0) {
+    LOG_INFO("9600 bps communication OK, changing to 115200 bps...");
+    ret = ble_send_uart_change_command(115200, 5000);
 
-    LOG_INFO("Changing BLE module to 115200 bps...");
-
-    ret = ble_send_at_command_sync("AT+UART=115200\r\n", "+OK", 3000);
-    current_baudrate = 115200;
+    if (ret == 0) {
+      LOG_INFO("Baudrate changed to 115200 successfully");
+      current_baudrate = 115200;
+      vTaskDelay(pdMS_TO_TICKS(100));
+    } else {
+      LOG_ERR("Failed to change BLE module baudrate, staying at 9600");
+      current_baudrate = 9600;
+    }
+  } else {
+    LOG_INFO("9600 bps no response, assuming 115200 bps...");
     ble_uart5_change_baudrate(115200);
-    vTaskDelay(pdMS_TO_TICKS(2500));
-  }
-  else
-  {
     current_baudrate = 115200;
-    ble_uart5_change_baudrate(115200);
+    vTaskDelay(pdMS_TO_TICKS(100));
   }
 
-  // 최종 속도 로그
+  LOG_INFO("BLE module configured at %lu bps", current_baudrate);
 
-  LOG_INFO("BLE initialization complete at %lu bps", current_baudrate);
- 
+  // 5. AT+ADVON 전송 (advertising 시작)
+  LOG_INFO("Starting BLE advertising...");
+  ret = ble_send_at_command_sync("AT+ADVON\r", "+ADVERTISING", 3000);
+  if (ret == 0) {
+    LOG_INFO("BLE advertising started successfully");
+  } else {
+    ret = ble_send_at_command_sync("AT+ADVON\r", "+OK", 2000);
+    if (ret == 0) {
+      LOG_INFO("BLE advertising command accepted");
+    } else {
+      LOG_WARN("BLE advertising start failed (may already be advertising)");
+    }
+  }
+
+  vTaskDelay(pdMS_TO_TICKS(100));
+
+  // 6. UART 비활성화 (comm_start에서 DMA 모드로 다시 활성화)
   LL_USART_Disable(UART5);
-  // 7. Bypass 모드로 전환 (정상 동작 준비)
   ble_set_bypass_mode();
 
   return 0;
 }
 
 int ble_uart5_send(const char *data, size_t len) {
-  for (int i = 0; i < len; i++) {
+  for (size_t i = 0; i < len; i++) {
     while (!LL_USART_IsActiveFlag_TXE(UART5))
       ;
     LL_USART_TransmitData8(UART5, *(data + i));
@@ -225,13 +254,16 @@ int ble_uart5_send(const char *data, size_t len) {
   return 0;
 }
 
-// 폴링 방식으로 1바이트 수신 (타임아웃 포함)
 static int ble_uart5_recv_poll(uint8_t *byte, uint32_t timeout_ms) {
   uint32_t start = HAL_GetTick();
 
   while (!LL_USART_IsActiveFlag_RXNE(UART5)) {
     if ((HAL_GetTick() - start) > timeout_ms) {
-      return -1;  // 타임아웃
+      return -1;
+    }
+    // 와치도그 방지: 긴 대기 시 yield
+    if ((HAL_GetTick() - start) > 10) {
+      taskYIELD();
     }
   }
 
@@ -239,30 +271,26 @@ static int ble_uart5_recv_poll(uint8_t *byte, uint32_t timeout_ms) {
   return 0;
 }
 
-// 폴링 방식으로 문자열 수신 (라인 단위, 타임아웃 포함)
 static int ble_uart5_recv_line_poll(char *buf, size_t buf_size, uint32_t timeout_ms) {
   size_t pos = 0;
   uint32_t start = HAL_GetTick();
 
   while (pos < buf_size - 1) {
     uint8_t byte;
-
-    // 남은 시간 계산
     uint32_t elapsed = HAL_GetTick() - start;
+    
     if (elapsed > timeout_ms) {
       buf[pos] = '\0';
-      return -1;  // 타임아웃
+      return -1;
     }
 
-    // 1바이트 수신
     if (ble_uart5_recv_poll(&byte, timeout_ms - elapsed) != 0) {
       buf[pos] = '\0';
-      return -1;  // 타임아웃
+      return -1;
     }
 
     buf[pos++] = (char)byte;
 
-    // \n 수신 시 종료
     if (byte == '\r') {
       buf[pos] = '\0';
       return pos;
@@ -273,31 +301,21 @@ static int ble_uart5_recv_line_poll(char *buf, size_t buf_size, uint32_t timeout
   return pos;
 }
 
-// UART 속도 재설정
 static int ble_uart5_change_baudrate(uint32_t baudrate) {
-  // UART 비활성화
   LL_USART_Disable(UART5);
-
-  // 보드레이트 변경
   LL_USART_SetBaudRate(UART5, HAL_RCC_GetPCLK1Freq(), LL_USART_OVERSAMPLING_16, baudrate);
-
-  // UART 재활성화
   LL_USART_Enable(UART5);
 
   LOG_INFO("UART5 baudrate changed to %lu", baudrate);
   return 0;
 }
 
-// 동기 AT 커맨드 전송 및 응답 대기 (초기화용, 폴링 방식)
 static int ble_send_at_command_sync(const char *at_cmd, const char *expected_response, uint32_t timeout_ms) {
   char response[128];
 
   LOG_INFO("Sending AT command (sync): %s", at_cmd);
-
-  // AT 커맨드 전송
   ble_uart5_send(at_cmd, strlen(at_cmd));
 
-  // 응답 대기 (폴링 방식)
   uint32_t start = HAL_GetTick();
 
   while ((HAL_GetTick() - start) < timeout_ms) {
@@ -306,32 +324,104 @@ static int ble_send_at_command_sync(const char *at_cmd, const char *expected_res
     if (len > 0) {
       LOG_INFO("Received response: %s", response);
 
-      // 기대 응답과 비교
       if (strstr(response, expected_response) != NULL) {
         LOG_INFO("AT command succeeded");
-        return 0;  // 성공
+        return 0;
       }
 
-      // 에러 응답 확인
       if (strstr(response, "+ERROR") != NULL) {
         LOG_ERR("AT command failed: %s", response);
         return -1;
       }
     }
+    
+    // 와치도그 방지
+    taskYIELD();
   }
 
   LOG_ERR("AT command timeout");
-  return -1;  // 타임아웃
+  return -1;
+}
+
+static int ble_send_uart_change_command(uint32_t baudrate, uint32_t timeout_ms) {
+  char at_cmd[32];
+  char response[128];
+
+  snprintf(at_cmd, sizeof(at_cmd), "AT+UART=%lu\r", baudrate);
+  LOG_INFO("Sending UART change command: %s", at_cmd);
+
+  ble_uart5_send(at_cmd, strlen(at_cmd));
+
+  uint32_t start = HAL_GetTick();
+  bool ok_received = false;
+
+  while ((HAL_GetTick() - start) < timeout_ms) {
+    int len = ble_uart5_recv_line_poll(response, sizeof(response), 100);
+
+    if (len > 0) {
+      LOG_INFO("Received response: %s", response);
+
+      if (strstr(response, "+OK") != NULL) {
+        LOG_INFO("UART change: +OK received");
+        ok_received = true;
+        break;
+      }
+
+      if (strstr(response, "+ERROR") != NULL) {
+        LOG_ERR("UART change failed: %s", response);
+        return -1;
+      }
+    }
+    taskYIELD();
+  }
+
+  if (!ok_received) {
+    LOG_ERR("UART change: +OK timeout");
+    return -1;
+  }
+
+  LOG_INFO("Changing MCU UART to %lu bps...", baudrate);
+  ble_uart5_change_baudrate(baudrate);
+
+  vTaskDelay(pdMS_TO_TICKS(100));
+  while (LL_USART_IsActiveFlag_RXNE(UART5)) {
+    (void)LL_USART_ReceiveData8(UART5);
+  }
+
+  LOG_INFO("Waiting 2 seconds for BLE module reset...");
+  vTaskDelay(pdMS_TO_TICKS(2000));
+
+  LOG_INFO("Waiting for +READY at new baudrate...");
+  start = HAL_GetTick();
+
+  while ((HAL_GetTick() - start) < timeout_ms) {
+    int len = ble_uart5_recv_line_poll(response, sizeof(response), 100);
+
+    if (len > 0) {
+      LOG_INFO("Received response: %s", response);
+
+      if (strstr(response, "+READY") != NULL) {
+        LOG_INFO("UART change: +READY received");
+        return 0;
+      }
+    }
+    taskYIELD();
+  }
+
+  LOG_WARN("UART change: +READY timeout (proceeding anyway)");
+  return 0;
 }
 
 int ble_set_at_cmd_mode(void)
 {
-	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_10, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_10, GPIO_PIN_SET);
+  return 0;
 }
 
 int ble_set_bypass_mode(void)
 {
-	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_10, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_10, GPIO_PIN_RESET);
+  return 0;
 }
 
 static const ble_hal_ops_t ble_uart5_ops = {
@@ -341,26 +431,24 @@ static const ble_hal_ops_t ble_uart5_ops = {
     .stop = NULL,
     .send = ble_uart5_send,
     .recv = NULL,
-	.at_mode = ble_set_at_cmd_mode,
-	.bypass_mode = ble_set_bypass_mode,
+    .at_mode = ble_set_at_cmd_mode,
+    .bypass_mode = ble_set_bypass_mode,
 };
 
 #if defined(BOARD_TYPE_BASE_UNICORE) || defined(BOARD_TYPE_BASE_UBLOX)
-/**
- * @brief This function handles USART3 global interrupt.
- */
-void USART5_IRQHandler(void) {
-    /* USER CODE BEGIN USART3_IRQn 0 */
+
+void UART5_IRQHandler(void) {
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
   if (LL_USART_IsActiveFlag_IDLE(UART5)) {
+    LL_USART_ClearFlag_IDLE(UART5);
+    
+    /* ★★★ NULL 체크 추가 ★★★ */
     if (ble_queues[0] != NULL) {
       uint8_t dummy = 0;
       xQueueSendFromISR(ble_queues[0], &dummy, &xHigherPriorityTaskWoken);
     }
-    LL_USART_ClearFlag_IDLE(UART5);
   }
-
 
   if (LL_USART_IsActiveFlag_PE(UART5)) {
     LL_USART_ClearFlag_PE(UART5);
@@ -376,42 +464,43 @@ void USART5_IRQHandler(void) {
   }
 
   portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-  /* USER CODE END USART3_IRQn 0 */
-  /* USER CODE BEGIN USART3_IRQn 1 */
-
-  /* USER CODE END USART3_IRQn 1 */
 }
 
 void DMA1_Stream0_IRQHandler(void)
 {
-
+  /* DMA 에러 처리 */
+  if (LL_DMA_IsActiveFlag_TE0(DMA1)) {
+    LL_DMA_ClearFlag_TE0(DMA1);
+    LOG_ERR("DMA Transfer Error");
+  }
+  if (LL_DMA_IsActiveFlag_FE0(DMA1)) {
+    LL_DMA_ClearFlag_FE0(DMA1);
+  }
+  if (LL_DMA_IsActiveFlag_DME0(DMA1)) {
+    LL_DMA_ClearFlag_DME0(DMA1);
+  }
 }
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-    if(GPIO_Pin == GPIO_PIN_11)  // PC11: BLE 연결 상태 감지 핀
+  if(GPIO_Pin == GPIO_PIN_11)
+  {
+    GPIO_PinState pin_state = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_11);
+
+    if(pin_state == GPIO_PIN_RESET)
     {
-        GPIO_PinState pin_state = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_11);
-
-        if(pin_state == GPIO_PIN_RESET)
-        {
-            // DISCONNECT (LOW)
-            ble_set_connection_state(BLE_CONN_DISCONNECTED);
-            LOG_INFO("BLE GPIO: Disconnected (PC11 LOW)");
-        }
-        else
-        {
-            // CONNECT (HIGH)
-            ble_set_connection_state(BLE_CONN_CONNECTED);
-            LOG_INFO("BLE GPIO: Connected (PC11 HIGH)");
-        }
+      ble_set_connection_state(BLE_CONN_DISCONNECTED);
     }
+    else
+    {
+      ble_set_connection_state(BLE_CONN_CONNECTED);
+    }
+  }
 }
-
 
 void EXTI15_10_IRQHandler(void)
 {
-     HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_11);
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_11);
 }
 
 #endif
@@ -421,24 +510,19 @@ int ble_port_init_instance(ble_t *ble_handle) {
 
   LOG_INFO("BLE Port 초기화 시작 (보드: %d)", config->board);
 
-    if(config->use_ble == true)
-    {
-        ble_handle->ops = &ble_uart5_ops;
-        if (ble_handle->ops->init) {
-            ble_handle->ops->init();
-        }
+  if(config->use_ble == true) {
+    ble_handle->ops = &ble_uart5_ops;
+    if (ble_handle->ops->init) {
+      ble_handle->ops->init();
     }
-    else
-    {
-        LOG_ERR("BLE 포트 초기화 실패: 잘못된 BLE 모드");
-        return -1;
-    }
+  } else {
+    LOG_ERR("BLE 포트 초기화 실패: BLE 비활성화");
+    return -1;
+  }
 
-    LOG_INFO("BLE 초기화 완료");
-
-    return 0;
+  LOG_INFO("BLE 초기화 완료");
+  return 0;
 }
-
 
 void ble_port_start(ble_t *ble_handle) {
   if (!ble_handle || !ble_handle->ops || !ble_handle->ops->start) {
@@ -451,23 +535,22 @@ void ble_port_start(ble_t *ble_handle) {
 
 void ble_port_stop(ble_t *ble_handle) {
   if (!ble_handle || !ble_handle->ops || !ble_handle->ops->stop) {
-    LOG_ERR("BLE start failed: invalid handle or ops");
+    LOG_ERR("BLE stop failed: invalid handle or ops");
     return;
   }
 
   ble_handle->ops->stop();
 }
 
-uint32_t ble_port_get_rx_pos() {
+uint32_t ble_port_get_rx_pos(void) {
   uint32_t pos = sizeof(ble_recv_buf[0]) - LL_DMA_GetDataLength(BLE_PORT_UART_DMA, BLE_PORT_UART_DMA_STREAM);
   return pos;
 }
 
-char *ble_port_get_recv_buf() 
-{
+char *ble_port_get_recv_buf(void) {
   return ble_recv_buf[0];
 }
 
 void ble_port_set_queue(QueueHandle_t queue) {
-    ble_queues[0] = queue;
+  ble_queues[0] = queue;
 }

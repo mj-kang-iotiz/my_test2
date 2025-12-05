@@ -91,8 +91,8 @@ bool rtcm_send_to_lora(gps_t *gps) {
 
     uint32_t toa_ms = calculate_lora_toa(fragment_len);
 
-    LOG_INFO("Queueing fragment %d/%d: %d bytes, ToA=%dms",
-             i + 1, total_fragments, fragment_len, toa_ms);
+    LOG_DEBUG("Queueing fragment %d/%d: %d bytes",
+             i + 1, total_fragments, fragment_len);
 
     // Last fragment gets callback for logging
     bool is_last = (i == total_fragments - 1);

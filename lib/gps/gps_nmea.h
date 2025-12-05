@@ -18,7 +18,9 @@ typedef enum {
   GPS_FIX_PPS = 3,
   GPS_FIX_RTK_FIX = 4,
   GPS_FIX_RTK_FLOAT = 5,
-  GPS_FIX_DR = 6
+  GPS_FIX_DR = 6,
+  GPS_FIX_MANUAL_POS = 7,
+  GPS_FIX_SIMULATOR = 8
 } gps_fix_t;
 
 /**
@@ -66,7 +68,7 @@ typedef struct
 typedef struct {
   gps_gga_t gga;
 #if defined(USE_STORE_RAW_GGA)
-  char gga_raw[100];
+  char gga_raw[120];
   uint8_t gga_raw_pos;
   bool gga_is_rdy;
 #endif
