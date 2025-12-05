@@ -772,11 +772,6 @@ static void lora_process_task(void *pvParameter)
   {
     xQueueReceive(instance.queue, &dummy, portMAX_DELAY);
 
-    if(config->lora_mode == LORA_MODE_ROVER && instance.init_complete)
-    {
-      led_set_toggle(3);
-    }
-
     pos = lora_port_get_rx_pos();
     char *lora_recv = lora_port_get_recv_buf();
 
@@ -828,6 +823,12 @@ static void lora_process_task(void *pvParameter)
 
         if ((strstr(temp_buf, "at+recv=") || strstr(temp_buf, "AT+RECV=")) && instance.init_complete)
         {
+          // ROVER 모드에서 실제 P2P 데이터 수신 시 LED 토글
+          if(config->lora_mode == LORA_MODE_ROVER)
+          {
+            led_set_toggle(3);
+          }
+
           lora_p2p_recv_data_t recv_data;
 
           if (lora_parse_p2p_recv(temp_buf, &recv_data))
@@ -936,6 +937,12 @@ static void lora_process_task(void *pvParameter)
 
         if ((strstr(temp_buf, "at+recv=") || strstr(temp_buf, "AT+RECV=")) && instance.init_complete)
         {
+          // ROVER 모드에서 실제 P2P 데이터 수신 시 LED 토글 (wrap-around case)
+          if(config->lora_mode == LORA_MODE_ROVER)
+          {
+            led_set_toggle(3);
+          }
+
           lora_p2p_recv_data_t recv_data;
 
           if (lora_parse_p2p_recv(temp_buf, &recv_data))
