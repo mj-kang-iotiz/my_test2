@@ -45,7 +45,9 @@ static void parse_nmea_gga(gps_t *gps) {
     break;
 
   case 2: // lat
+    LOG_DEBUG("LAT str:[%s] pos:%d", gps->nmea.term_str, gps->nmea.term_pos);
     gps->nmea_data.gga.lat = parse_lat_lon(gps);
+    LOG_DEBUG("LAT parsed: %.8f", gps->nmea_data.gga.lat);
     break;
 
   case 3: // NS
@@ -54,7 +56,9 @@ static void parse_nmea_gga(gps_t *gps) {
     break;
 
   case 4: // lon
+    LOG_DEBUG("LON str:[%s] pos:%d", gps->nmea.term_str, gps->nmea.term_pos);
     gps->nmea_data.gga.lon = parse_lat_lon(gps);
+    LOG_DEBUG("LON parsed: %.8f", gps->nmea_data.gga.lon);
     break;
 
   case 5: // EW
@@ -64,6 +68,7 @@ static void parse_nmea_gga(gps_t *gps) {
 
   case 6: // quality(fix)
     gps->nmea_data.gga.fix = gps_parse_number(gps);
+    LOG_DEBUG("FIX quality: %d", gps->nmea_data.gga.fix);
     break;
 
   case 7: // sat num
