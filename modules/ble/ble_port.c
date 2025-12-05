@@ -9,6 +9,7 @@
 #include "stm32f4xx_ll_gpio.h"
 #include "stm32f4xx_ll_usart.h"
 #include "FreeRTOS.h"
+#include "task.h"  // vTaskDelay 사용을 위해 추가
 #include "queue.h"
 #include <string.h>
 
@@ -160,9 +161,9 @@ int ble_uart5_hw_init(void) {
   //    - UART를 먼저 활성화한 후 모드 전환 (부팅 메시지 수신 위해)
   //    - 에지 트리거를 위해 Low → High 순서로 토글
   ble_set_bypass_mode();  // Low
-  HAL_Delay(100);
+  vTaskDelay(pdMS_TO_TICKS(100));  // vTaskDelay로 변경 (와치독 feed 가능)
   ble_set_at_cmd_mode();  // High (AT 모드)
-  HAL_Delay(500);  // BLE 모듈 부팅 및 안정화 대기
+  vTaskDelay(pdMS_TO_TICKS(500));  // vTaskDelay로 변경 (와치독 feed 가능)
 
   // 부팅 메시지 버퍼 클리어 (예: +READY 등)
   while (LL_USART_IsActiveFlag_RXNE(UART5)) {
@@ -187,7 +188,7 @@ int ble_uart5_hw_init(void) {
       // BLE 모듈 및 MCU UART 변경 완료
       LOG_INFO("Baudrate changed to 115200 successfully");
       current_baudrate = 115200;
-      HAL_Delay(100);  // 안정화 대기
+      vTaskDelay(pdMS_TO_TICKS(100));  // vTaskDelay로 변경
     } else {
       LOG_ERR("Failed to change BLE module baudrate, staying at 9600");
       current_baudrate = 9600;  // 실패 시 9600 유지
@@ -199,7 +200,7 @@ int ble_uart5_hw_init(void) {
     LOG_INFO("9600 bps no response, assuming 115200 bps...");
     ble_uart5_change_baudrate(115200);
     current_baudrate = 115200;
-    HAL_Delay(100);
+    vTaskDelay(pdMS_TO_TICKS(100));  // vTaskDelay로 변경
   }
 
   // 최종 속도 로그
@@ -214,7 +215,7 @@ int ble_uart5_hw_init(void) {
     LOG_WARN("BLE advertising start failed or timeout");
   }
 
-  HAL_Delay(100);  // ADVON 처리 대기
+  vTaskDelay(pdMS_TO_TICKS(100));  // vTaskDelay로 변경 (ADVON 처리 대기)
 
   LL_USART_Disable(UART5);
   // 6. Bypass 모드로 전환 (정상 동작 준비)
@@ -380,14 +381,14 @@ static int ble_send_uart_change_command(uint32_t baudrate, uint32_t timeout_ms) 
   ble_uart5_change_baudrate(baudrate);
 
   // 버퍼 클리어 (속도 변경 중 잘못된 데이터가 있을 수 있음)
-  HAL_Delay(10);  // UART 안정화 대기
+  vTaskDelay(pdMS_TO_TICKS(10));  // vTaskDelay로 변경 (UART 안정화 대기)
   while (LL_USART_IsActiveFlag_RXNE(UART5)) {
     (void)LL_USART_ReceiveData8(UART5);
   }
 
   // 3. 2초 대기 (매뉴얼 명시 - BLE 모듈이 baudrate 변경 완료하는 시간)
   LOG_INFO("Waiting 2 seconds for BLE module baudrate change...");
-  HAL_Delay(2000);
+  vTaskDelay(pdMS_TO_TICKS(2000));  // vTaskDelay로 변경 (와치독 feed 가능!)
 
   // 4. +READY 응답 대기 (새로운 속도로)
   LOG_INFO("Waiting for +READY at new baudrate...");
