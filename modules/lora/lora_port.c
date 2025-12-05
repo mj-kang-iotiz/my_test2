@@ -91,6 +91,7 @@ static void lora_uart3_init(void)
   USART_InitStruct.OverSampling = LL_USART_OVERSAMPLING_16;
   LL_USART_Init(USART3, &USART_InitStruct);
   LL_USART_ConfigAsyncMode(USART3);
+  LL_USART_Enable(USART3);
 }
 
 int lora_uart3_comm_start(void) {
@@ -109,7 +110,6 @@ int lora_uart3_comm_start(void) {
   LL_USART_EnableDMAReq_RX(USART3);
 
   LL_DMA_EnableStream(DMA1, LL_DMA_STREAM_1);
-  LL_USART_Enable(USART3);
 
   return 0;
 }
