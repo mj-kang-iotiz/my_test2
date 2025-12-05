@@ -4,6 +4,7 @@
 #include "board_config.h"
 #include "gps.h"
 #include "gps_app.h"
+#include "led.h"
 #include "semphr.h"
 #include <string.h>
 #include <stdio.h>
@@ -809,6 +810,9 @@ static void lora_process_task(void *pvParameter)
 
           if (lora_parse_p2p_recv(temp_buf, &recv_data))
           {
+            // LED 토글 (LoRa 수신 표시)
+            led_set_toggle(LED_ID_3);
+
             // 콜백이 등록되어 있으면 콜백 호출
             if (instance.p2p_recv_callback)
             {
@@ -917,6 +921,9 @@ static void lora_process_task(void *pvParameter)
 
           if (lora_parse_p2p_recv(temp_buf, &recv_data))
           {
+            // LED 토글 (LoRa 수신 표시)
+            led_set_toggle(LED_ID_3);
+
             // 콜백이 등록되어 있으면 콜백 호출
             if (instance.p2p_recv_callback)
             {
@@ -1000,6 +1007,18 @@ void lora_instance_init(void)
 
   // RTCM 재조립 버퍼 초기화
   rtcm_reassembly_reset(&instance.rtcm_reassembly);
+
+  // LED 초기화 (LoRa는 LED 3번 사용)
+  const board_config_t *config = board_get_config();
+  if (config->lora_mode == LORA_MODE_BASE)
+  {
+    led_set_color(LED_ID_3, LED_COLOR_YELLOW);  // BASE는 노란색
+  }
+  else if (config->lora_mode == LORA_MODE_ROVER)
+  {
+    led_set_color(LED_ID_3, LED_COLOR_GREEN);   // ROVER는 초록색
+  }
+  led_set_state(LED_ID_3, true);
 
   if (lora_port_init_instance(&instance.lora) != 0)
   {
