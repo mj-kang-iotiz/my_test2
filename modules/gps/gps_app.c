@@ -246,6 +246,7 @@ typedef struct {
   const char **cmd_list;
   uint8_t cmd_count;
   gps_init_callback_t callback;
+  char **dynamic_cmds;  // 동적 할당된 명령어 배열 (해제 필요)
 } gps_init_context_t;
 
 #if defined(BOARD_TYPE_BASE_UNICORE) || defined(BOARD_TYPE_ROVER_UNICORE)
@@ -298,6 +299,16 @@ static void gps_init_command_callback(bool success, void *user_data) {
         ctx->callback(true, NULL);
       }
 
+      // 동적으로 할당된 명령어 배열 해제
+      if (ctx->dynamic_cmds) {
+        for (uint8_t i = 0; i < ctx->cmd_count; i++) {
+          if (ctx->dynamic_cmds[i]) {
+            vPortFree(ctx->dynamic_cmds[i]);
+          }
+        }
+        vPortFree(ctx->dynamic_cmds);
+      }
+
       vPortFree(ctx);
       return;
     }
@@ -316,12 +327,12 @@ static void gps_init_command_callback(bool success, void *user_data) {
                ctx->retry_count, GPS_INIT_MAX_RETRY,
                ctx->cmd_list[ctx->current_step]);
 
-      
+
       gps_send_command_async(ctx->gps_id, ctx->cmd_list[ctx->current_step],
                              GPS_INIT_TIMEOUT_MS, gps_init_command_callback, ctx);
     } else {
 
-      
+
       LOG_ERR("GPS[%d] Init failed at step %d/%d after %d retries: %s",
               ctx->gps_id, ctx->current_step + 1, ctx->cmd_count,
               GPS_INIT_MAX_RETRY, ctx->cmd_list[ctx->current_step]);
@@ -329,7 +340,17 @@ static void gps_init_command_callback(bool success, void *user_data) {
       if (ctx->callback) {
         ctx->callback(false, NULL);
       }
-      
+
+      // 동적으로 할당된 명령어 배열 해제
+      if (ctx->dynamic_cmds) {
+        for (uint8_t i = 0; i < ctx->cmd_count; i++) {
+          if (ctx->dynamic_cmds[i]) {
+            vPortFree(ctx->dynamic_cmds[i]);
+          }
+        }
+        vPortFree(ctx->dynamic_cmds);
+      }
+
       vPortFree(ctx);
     }
   }
@@ -358,6 +379,7 @@ bool gps_init_um982_base_async(gps_id_t id, gps_init_callback_t callback) {
   ctx->cmd_list = um982_base_cmds;
   ctx->cmd_count = UM982_BASE_CMD_COUNT;
   ctx->callback = callback;
+  ctx->dynamic_cmds = NULL;
 
   LOG_DEBUG("GPS[%d] Starting UM982 base init sequence (%d commands)",
            id, ctx->cmd_count);
@@ -396,6 +418,7 @@ bool gps_init_um982_rover_async(gps_id_t id, gps_init_callback_t callback) {
   ctx->cmd_list = um982_rover_cmds;
   ctx->cmd_count = UM982_ROVER_CMD_COUNT;
   ctx->callback = callback;
+  ctx->dynamic_cmds = NULL;
 
   LOG_DEBUG("GPS[%d] Starting UM982 rover init sequence (%d commands)",
            id, ctx->cmd_count);
@@ -1032,7 +1055,175 @@ bool gps_factory_reset_async(gps_id_t id, gps_init_callback_t callback, void *us
 
   }
 
- 
+
+
+  return true;
+}
+
+/**
+ * @brief GPS UM982 Base 모드 초기화 - Fixed Position (비동기)
+ */
+bool gps_init_um982_base_fixed_async(gps_id_t id, double lat, double lon, double alt, gps_init_callback_t callback) {
+  if (id >= GPS_ID_MAX || !gps_instances[id].enabled) {
+    LOG_ERR("GPS[%d] invalid or disabled", id);
+    return false;
+  }
+
+  // 초기화 컨텍스트 생성
+  gps_init_context_t *ctx = (gps_init_context_t *)pvPortMalloc(sizeof(gps_init_context_t));
+  if (!ctx) {
+    LOG_ERR("GPS[%d] failed to allocate init context", id);
+    return false;
+  }
+
+  // 동적 명령어 배열 생성 (공통 명령 + MODE BASE 명령 + RTCM 명령)
+  const int cmd_count = 13;
+  char **cmds = (char **)pvPortMalloc(sizeof(char *) * cmd_count);
+  if (!cmds) {
+    LOG_ERR("GPS[%d] failed to allocate command array", id);
+    vPortFree(ctx);
+    return false;
+  }
+
+  // 각 명령어 문자열 할당
+  cmds[0] = (char *)pvPortMalloc(64);
+  cmds[1] = (char *)pvPortMalloc(64);
+  cmds[2] = (char *)pvPortMalloc(64);
+  cmds[3] = (char *)pvPortMalloc(64);
+  cmds[4] = (char *)pvPortMalloc(128);  // MODE BASE 명령은 더 길 수 있음
+  cmds[5] = (char *)pvPortMalloc(64);
+  cmds[6] = (char *)pvPortMalloc(64);
+  cmds[7] = (char *)pvPortMalloc(64);
+  cmds[8] = (char *)pvPortMalloc(64);
+  cmds[9] = (char *)pvPortMalloc(64);
+  cmds[10] = (char *)pvPortMalloc(64);
+  cmds[11] = (char *)pvPortMalloc(64);
+  cmds[12] = (char *)pvPortMalloc(64);
+
+  // 명령어 작성
+  snprintf(cmds[0], 64, "unmask BDS\r\n");
+  snprintf(cmds[1], 64, "unmask GPS\r\n");
+  snprintf(cmds[2], 64, "unmask GLO\r\n");
+  snprintf(cmds[3], 64, "unmask GAL\r\n");
+  snprintf(cmds[4], 128, "MODE BASE %.11f %.11f %.4f\r\n", lat, lon, alt);
+  snprintf(cmds[5], 64, "rtcm1033 com1 10\r\n");
+  snprintf(cmds[6], 64, "rtcm1006 com1 10\r\n");
+  snprintf(cmds[7], 64, "rtcm1074 com1 2\r\n");
+  snprintf(cmds[8], 64, "rtcm1124 com1 2\r\n");
+  snprintf(cmds[9], 64, "rtcm1084 com1 2\r\n");
+  snprintf(cmds[10], 64, "rtcm1094 com1 2\r\n");
+  snprintf(cmds[11], 64, "gpgga com1 1\r\n");
+  snprintf(cmds[12], 64, "BESTNAVB 1\r\n");
+
+  // 컨텍스트 초기화
+  ctx->gps_id = id;
+  ctx->current_step = 0;
+  ctx->retry_count = 0;
+  ctx->cmd_list = (const char **)cmds;
+  ctx->cmd_count = cmd_count;
+  ctx->callback = callback;
+  ctx->dynamic_cmds = cmds;
+
+  LOG_INFO("GPS[%d] Starting UM982 base FIXED init sequence (%d commands)", id, ctx->cmd_count);
+  LOG_INFO("GPS[%d] Fixed position: lat=%.11f, lon=%.11f, alt=%.4f", id, lat, lon, alt);
+
+  // 첫 번째 명령어 전송
+  if (!gps_send_command_async(id, ctx->cmd_list[0], GPS_INIT_TIMEOUT_MS,
+                               gps_init_command_callback, ctx)) {
+    LOG_ERR("GPS[%d] failed to start init sequence", id);
+
+    // 메모리 해제
+    for (int i = 0; i < cmd_count; i++) {
+      vPortFree(cmds[i]);
+    }
+    vPortFree(cmds);
+    vPortFree(ctx);
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * @brief GPS UM982 Base 모드 초기화 - Survey-in Mode (비동기)
+ */
+bool gps_init_um982_base_surveyin_async(gps_id_t id, uint32_t time_sec, float accuracy_m, gps_init_callback_t callback) {
+  if (id >= GPS_ID_MAX || !gps_instances[id].enabled) {
+    LOG_ERR("GPS[%d] invalid or disabled", id);
+    return false;
+  }
+
+  // 초기화 컨텍스트 생성
+  gps_init_context_t *ctx = (gps_init_context_t *)pvPortMalloc(sizeof(gps_init_context_t));
+  if (!ctx) {
+    LOG_ERR("GPS[%d] failed to allocate init context", id);
+    return false;
+  }
+
+  // 동적 명령어 배열 생성
+  const int cmd_count = 13;
+  char **cmds = (char **)pvPortMalloc(sizeof(char *) * cmd_count);
+  if (!cmds) {
+    LOG_ERR("GPS[%d] failed to allocate command array", id);
+    vPortFree(ctx);
+    return false;
+  }
+
+  // 각 명령어 문자열 할당
+  cmds[0] = (char *)pvPortMalloc(64);
+  cmds[1] = (char *)pvPortMalloc(64);
+  cmds[2] = (char *)pvPortMalloc(64);
+  cmds[3] = (char *)pvPortMalloc(64);
+  cmds[4] = (char *)pvPortMalloc(128);
+  cmds[5] = (char *)pvPortMalloc(64);
+  cmds[6] = (char *)pvPortMalloc(64);
+  cmds[7] = (char *)pvPortMalloc(64);
+  cmds[8] = (char *)pvPortMalloc(64);
+  cmds[9] = (char *)pvPortMalloc(64);
+  cmds[10] = (char *)pvPortMalloc(64);
+  cmds[11] = (char *)pvPortMalloc(64);
+  cmds[12] = (char *)pvPortMalloc(64);
+
+  // 명령어 작성
+  snprintf(cmds[0], 64, "unmask BDS\r\n");
+  snprintf(cmds[1], 64, "unmask GPS\r\n");
+  snprintf(cmds[2], 64, "unmask GLO\r\n");
+  snprintf(cmds[3], 64, "unmask GAL\r\n");
+  snprintf(cmds[4], 128, "MODE BASE TIME %u %.2f\r\n", time_sec, accuracy_m);
+  snprintf(cmds[5], 64, "rtcm1033 com1 10\r\n");
+  snprintf(cmds[6], 64, "rtcm1006 com1 10\r\n");
+  snprintf(cmds[7], 64, "rtcm1074 com1 2\r\n");
+  snprintf(cmds[8], 64, "rtcm1124 com1 2\r\n");
+  snprintf(cmds[9], 64, "rtcm1084 com1 2\r\n");
+  snprintf(cmds[10], 64, "rtcm1094 com1 2\r\n");
+  snprintf(cmds[11], 64, "gpgga com1 1\r\n");
+  snprintf(cmds[12], 64, "BESTNAVB 1\r\n");
+
+  // 컨텍스트 초기화
+  ctx->gps_id = id;
+  ctx->current_step = 0;
+  ctx->retry_count = 0;
+  ctx->cmd_list = (const char **)cmds;
+  ctx->cmd_count = cmd_count;
+  ctx->callback = callback;
+  ctx->dynamic_cmds = cmds;
+
+  LOG_INFO("GPS[%d] Starting UM982 base SURVEY-IN init sequence (%d commands)", id, ctx->cmd_count);
+  LOG_INFO("GPS[%d] Survey-in: time=%u sec, accuracy=%.2f m", id, time_sec, accuracy_m);
+
+  // 첫 번째 명령어 전송
+  if (!gps_send_command_async(id, ctx->cmd_list[0], GPS_INIT_TIMEOUT_MS,
+                               gps_init_command_callback, ctx)) {
+    LOG_ERR("GPS[%d] failed to start init sequence", id);
+
+    // 메모리 해제
+    for (int i = 0; i < cmd_count; i++) {
+      vPortFree(cmds[i]);
+    }
+    vPortFree(cmds);
+    vPortFree(ctx);
+    return false;
+  }
 
   return true;
 }

@@ -35,6 +35,27 @@ bool gps_init_um982_base_async(gps_id_t id, gps_init_callback_t callback);
 bool gps_init_um982_rover_async(gps_id_t id, gps_init_callback_t callback);
 
 /**
+ * @brief GPS UM982 Base 모드 초기화 - Fixed Position (비동기)
+ * @param id GPS ID
+ * @param lat 위도 (도)
+ * @param lon 경도 (도)
+ * @param alt 고도 (m)
+ * @param callback 초기화 완료 콜백
+ * @return 초기화 시작 성공 여부
+ */
+bool gps_init_um982_base_fixed_async(gps_id_t id, double lat, double lon, double alt, gps_init_callback_t callback);
+
+/**
+ * @brief GPS UM982 Base 모드 초기화 - Survey-in Mode (비동기)
+ * @param id GPS ID
+ * @param time_sec Survey-in 시간 (초)
+ * @param accuracy_m Survey-in 정확도 (m)
+ * @param callback 초기화 완료 콜백
+ * @return 초기화 시작 성공 여부
+ */
+bool gps_init_um982_base_surveyin_async(gps_id_t id, uint32_t time_sec, float accuracy_m, gps_init_callback_t callback);
+
+/**
  * @brief GPS 초기화 (board_config 기반)
  *
  * board_config.h의 설정을 읽어서 자동으로 GPS 인스턴스 생성
